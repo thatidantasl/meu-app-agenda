@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -2982,7 +2982,7 @@ function renderToday() {
   else {
     evalDiv.innerHTML = upcoming.map(a => {
       const d = parseDate(a.data);
-      return `<div class="card"><div class="card-header"><span class="card-label red">${formatDateBR(d).split(',')[0]}</span><span class="badge evaluation">Avaliacao</span></div><div class="card-title">${a.disciplina}</div><div class="card-subtitle">${a.tema}${a.sala ? ' | '+a.sala : ''}</div></div>`;
+      return `<div class="card"><div class="card-header"><span class="card-label red">${formatDateBR(d).replace(' de ' + d.getFullYear(), '')}</span><span class="badge evaluation">Avaliacao</span></div><div class="card-title">${a.disciplina}</div><div class="card-subtitle">${a.tema}${a.sala ? ' | '+a.sala : ''}</div></div>`;
     }).join('');
   }
 }

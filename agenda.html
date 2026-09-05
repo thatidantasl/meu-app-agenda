@@ -388,6 +388,24 @@ body {
 .badge.taught { background: var(--success-light); color: var(--success); }
 .badge.pending { background: var(--accent-light); color: var(--accent); }
 
+/* COUNTDOWN BADGES */
+.countdown-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.countdown-badge.urgent { background: var(--danger-light); color: var(--danger); }
+.countdown-badge.soon { background: var(--accent-light); color: var(--accent); }
+.countdown-badge.ok { background: var(--success-light); color: var(--success); }
+.countdown-badge.past { background: var(--bg); color: var(--text-muted); }
+
 /* DISCIPLINE ICONS */
 .disc-icon { display: inline-flex; align-items: center; gap: 4px; }
 .disc-icon::before { font-size: 1rem; }
@@ -1875,6 +1893,7 @@ body {
 
 <div class="tabs">
   <div class="tab active" data-tab="today">&#128197; Hoje</div>
+  <div class="tab" data-tab="avaliacoes">&#128221; Avaliacoes</div>
   <div class="tab" data-tab="grid">&#128196; Grade</div>
   <div class="tab" data-tab="calendar">&#128198; Calendario</div>
   <div class="tab" data-tab="review">&#9989; Revisao</div>
@@ -1905,6 +1924,14 @@ body {
       </div>
       <div id="upcomingEvaluations"></div>
     </div>
+  </div>
+
+  <!-- TAB: AVALIACOES -->
+  <div class="tab-content" id="tab-avaliacoes">
+    <div class="section-title">
+      <div class="icon red">&#128221;</div> Todas as Avaliacoes do Semestre
+    </div>
+    <div id="allEvaluations"></div>
   </div>
 
   <!-- TAB: GRADE -->
@@ -2635,7 +2662,8 @@ function updateNotifButton() {
 function startNotifChecker() {
   stopNotifChecker();
   checkUpcomingClasses();
-  notifInterval = setInterval(checkUpcomingClasses, 60000);
+  checkUpcomingEvaluations();
+  notifInterval = setInterval(() => { checkUpcomingClasses(); checkUpcomingEvaluations(); }, 60000);
 }
 
 function stopNotifChecker() {
@@ -2666,6 +2694,23 @@ function checkUpcomingClasses() {
         localStorage.setItem(notifKey, '1');
       }
     }
+  });
+}
+
+function checkUpcomingEvaluations() {
+  if (!notifEnabled || Notification.permission !== 'granted') return;
+  const todayStr = formatDate(new Date());
+  getAllClasses().filter(a => a.tipo === 'avaliacao' && a.data >= todayStr && !cancelledClasses[a.data + '_' + a.disciplina]).forEach(a => {
+    const diff = daysUntil(a.data);
+    if (diff !== 1 && diff !== 7) return;
+    const key = 'm6_notif_avaliacao_' + a.data + '_' + a.disciplina + '_' + diff;
+    if (localStorage.getItem(key)) return;
+    const label = diff === 1 ? 'amanha' : 'em ' + diff + ' dias';
+    const dateLabel = formatDateBR(parseDate(a.data)).replace(' de ' + parseDate(a.data).getFullYear(), '');
+    new Notification('Prova ' + label + '!', {
+      body: a.disciplina + ': ' + a.tema + '\n' + dateLabel
+    });
+    localStorage.setItem(key, '1');
   });
 }
 
@@ -2868,6 +2913,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     // Atualizar conteudo ao abrir abas especificas
     if (tab.dataset.tab === 'grades') { initGradesSelect(); renderGrades(); }
     if (tab.dataset.tab === 'dashboard') { renderDashboard(); }
+    if (tab.dataset.tab === 'avaliacoes') { renderAllEvaluations(); }
     if (tab.dataset.tab === 'config') { renderSubjectColors(); renderIESCDates(); }
   });
 });
@@ -2985,6 +3031,49 @@ function renderToday() {
       return `<div class="card"><div class="card-header"><span class="card-label red">${formatDateBR(d).replace(' de ' + d.getFullYear(), '')}</span><span class="badge evaluation">Avaliacao</span></div><div class="card-title">${a.disciplina}</div><div class="card-subtitle">${a.tema}${a.sala ? ' | '+a.sala : ''}</div></div>`;
     }).join('');
   }
+}
+
+// ======================== TODAS AS AVALIACOES ========================
+function daysUntil(dateStr) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = parseDate(dateStr);
+  return Math.round((d - today) / 86400000);
+}
+
+function evaluationCountdown(dateStr) {
+  const diff = daysUntil(dateStr);
+  if (diff < 0) return { txt: 'Ha ' + (-diff) + (diff === -1 ? ' dia' : ' dias'), cls: 'past' };
+  if (diff === 0) return { txt: 'Hoje', cls: 'urgent' };
+  if (diff === 1) return { txt: 'Amanha', cls: 'urgent' };
+  if (diff <= 7) return { txt: 'Faltam ' + diff + ' dias', cls: 'soon' };
+  return { txt: 'Faltam ' + diff + ' dias', cls: 'ok' };
+}
+
+function renderAllEvaluations() {
+  const todayStr = formatDate(new Date());
+  const all = getAllClasses().filter(a => a.tipo === 'avaliacao' && !cancelledClasses[a.data + '_' + a.disciplina]);
+  const container = document.getElementById('allEvaluations');
+  if (!all.length) {
+    container.innerHTML = '<div class="empty-state"><p>Nenhuma avaliacao cadastrada</p></div>';
+    return;
+  }
+  const upcoming = all.filter(a => a.data >= todayStr).sort((a,b) => a.data.localeCompare(b.data));
+  const past = all.filter(a => a.data < todayStr).sort((a,b) => b.data.localeCompare(a.data));
+
+  const card = a => {
+    const d = parseDate(a.data);
+    const cd = evaluationCountdown(a.data);
+    return `<div class="card"><div class="card-header"><span class="card-label red">${formatDateBR(d).replace(' de ' + d.getFullYear(), '')}</span><span class="countdown-badge ${cd.cls}">${cd.txt}</span></div><div class="card-title">${a.disciplina}</div><div class="card-subtitle">${a.tema}${a.sala ? ' | ' + a.sala : ''}</div></div>`;
+  };
+
+  let html = '';
+  if (upcoming.length) {
+    html += '<div class="section-title" style="margin-top:8px"><div class="icon red">&#9203;</div> Proximas (' + upcoming.length + ')</div>' + upcoming.map(card).join('');
+  }
+  if (past.length) {
+    html += '<div class="section-title" style="margin-top:20px"><div class="icon green">&#9989;</div> Ja Realizadas (' + past.length + ')</div>' + past.map(card).join('');
+  }
+  container.innerHTML = html;
 }
 
 // ======================== GRID (FIXA - SEG A SEX) ========================
@@ -4640,6 +4729,7 @@ function renderAll() {
   loadIESCGroup();
   updateHeader();
   renderToday();
+  renderAllEvaluations();
   renderGrid();
   renderCalendar();
   renderReview();

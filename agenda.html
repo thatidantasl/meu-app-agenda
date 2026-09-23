@@ -4614,7 +4614,8 @@ function exportAllData() {
       discColors: JSON.parse(localStorage.getItem('m6_disc_colors') || '{}'),
       customSubjects: JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]'),
       iescDatas: JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}'),
-      iescGroup: localStorage.getItem('m6_iesc_group') || ''
+      iescGroup: localStorage.getItem('m6_iesc_group') || '',
+      grades: gradesData
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], {type: 'application/json;charset=utf-8'});
@@ -4658,6 +4659,10 @@ function importAllData(event) {
           }
           if (data.iescDatas) {
             localStorage.setItem('m6_iesc_datas', JSON.stringify(data.iescDatas));
+          }
+          if (data.grades) {
+            gradesData = data.grades;
+            saveGrades();
           }
           // Reaplicar na memoria
           updateDiscColors();
@@ -4704,6 +4709,7 @@ function importFromText() {
         if (data.discColors) localStorage.setItem('m6_disc_colors', JSON.stringify(data.discColors));
         if (data.customSubjects) localStorage.setItem('m6_custom_subjects', JSON.stringify(data.customSubjects));
         if (data.iescDatas) localStorage.setItem('m6_iesc_datas', JSON.stringify(data.iescDatas));
+        if (data.grades) { gradesData = data.grades; saveGrades(); }
         updateDiscColors();
         loadDefaultOverrides();
         if (data.config) {
@@ -4878,7 +4884,8 @@ function getShareData() {
     x: cancelledClasses,
     e: customEvents,
     grid: JSON.parse(localStorage.getItem('m6_grid') || '{}'),
-    g: localStorage.getItem('m6_iesc_group') || ''
+    g: localStorage.getItem('m6_iesc_group') || '',
+    grades: gradesData
   });
 }
 
@@ -4941,7 +4948,8 @@ function copyToClipboard() {
     cancelledClasses: cancelledClasses,
     customEvents: customEvents,
     gridFixa: JSON.parse(localStorage.getItem('m6_grid') || '{}'),
-    iescGroup: localStorage.getItem('m6_iesc_group') || ''
+    iescGroup: localStorage.getItem('m6_iesc_group') || '',
+    grades: gradesData
   });
   navigator.clipboard.writeText(data).then(() => {
     alert('Dados copiados com sucesso!\n\nNo outro dispositivo:\n1. Abra a agenda\n2. Clique em "Colar" no header\n3. Pronto!');
@@ -5025,7 +5033,8 @@ async function saveToCloud(silent) {
     discColors: JSON.parse(localStorage.getItem('m6_disc_colors') || '{}'),
     customSubjects: JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]'),
     iescDatas: JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}'),
-    iescGroup: localStorage.getItem('m6_iesc_group') || ''
+    iescGroup: localStorage.getItem('m6_iesc_group') || '',
+    grades: gradesData
   };
   
   try {
@@ -5109,6 +5118,7 @@ async function loadFromCloud(silent) {
     if (data.customSubjects) localStorage.setItem('m6_custom_subjects', JSON.stringify(data.customSubjects));
     if (data.iescDatas) localStorage.setItem('m6_iesc_datas', JSON.stringify(data.iescDatas));
     if (data.iescGroup) localStorage.setItem('m6_iesc_group', data.iescGroup);
+    if (data.grades) { gradesData = data.grades; saveGrades(); }
     
     saveCustom(); saveMonitorias(); saveReviewed(); saveCancelled();
     updateDiscColors();
@@ -5133,6 +5143,8 @@ const _origSaveCustom = saveCustom;
 saveCustom = function() { _origSaveCustom(); autoSaveToCloud(); };
 const _origSaveGrid = saveGridCell;
 saveGridCell = function() { _origSaveGrid(); autoSaveToCloud(); };
+const _origSaveGrades = saveGrades;
+saveGrades = function() { _origSaveGrades(); autoSaveToCloud(); };
 
 // Inicializa a agenda diretamente (sem login)
 initAgenda();

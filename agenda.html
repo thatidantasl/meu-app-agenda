@@ -388,6 +388,10 @@ body {
 .badge.taught { background: var(--success-light); color: var(--success); }
 .badge.pending { background: var(--accent-light); color: var(--accent); }
 
+/* Gerenciar aulas: aulas ja ministradas rasuradas */
+.manage-table tr.taught-row td { text-decoration: line-through; opacity: 0.65; }
+.manage-item.taught .manage-item-info { text-decoration: line-through; opacity: 0.7; }
+
 /* COUNTDOWN BADGES */
 .countdown-badge {
   display: inline-flex;
@@ -3457,7 +3461,7 @@ function showDayDetail(ds) {
   else {
     content += classes.map(a=>{
       const tc=getTipoClass(a.tipo);
-      return `<div class="card"><div class="card-header"><span class="card-label purple">${a.horario_inicio?a.horario_inicio+'-'+a.horario_fim:'A definir'}</span><span class="badge ${tc}">${getTipoLabel(a.tipo)}</span></div><div class="card-title">${a.disciplina}</div><div class="card-subtitle">${a.tema}</div><div class="card-meta">${a.sala?'<div class="meta-tag">&#128205; '+a.sala+'</div>':''}${a.professor?'<div class="meta-tag">&#128104;&#8205;&#127891; '+a.professor+'</div>':''}</div></div>`;
+      return `<div class="card"><div class="card-header"><span class="card-label purple">${a.horario_inicio?a.horario_inicio+'-'+a.horario_fim:'A definir'}</span><span class="badge ${tc}">${getTipoLabel(a.tipo)}</span></div><div class="card-title">${a.disciplina}</div><div class="card-subtitle">${a.tema}</div><div class="card-meta">${a.sala?'<div class="meta-tag">&#128205; '+a.sala+'</div>':''}${a.professor?'<div class="meta-tag">&#128104;&#8205;&#127891; '+a.professor+'</div>':''}</div>${a.anotacoes?'<div style="margin-top:6px;font-size:0.7rem;color:var(--text-muted);background:var(--bg);padding:4px 8px;border-radius:6px;border-left:2px solid var(--primary)">&#128221; '+a.anotacoes+'</div>':''}</div>`;
     }).join('');
   }
   document.getElementById('detailContent').innerHTML = content;
@@ -4519,11 +4523,12 @@ function renderManage() {
         const d = parseDate(a.data);
         const tc = getTipoClass(a.tipo);
         const isCancelled = cancelledClasses[key];
+        const isTaughtCls = isTaught(a);
         const isCustom = all.indexOf(a) >= defaultClasses.length;
         const dayStr = ['Dom','Seg','Ter','Qua','Qui','Sex','Sab'][d.getDay()];
         const dateStr = String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0');
         
-        return `<div class="manage-item ${isCancelled?'cancelled':''}" style="border-left-color:${isCancelled?'var(--danger)':'var(--primary)'}">
+        return `<div class="manage-item ${isCancelled?'cancelled':''}${isTaughtCls?' taught':''}" style="border-left-color:${isCancelled?'var(--danger)':'var(--primary)'}">
           <div class="manage-item-info">
             <div class="manage-item-disc">${a.disciplina}</div>
             <div class="manage-item-details">${dayStr} ${dateStr} ${a.horario_inicio ? a.horario_inicio+'-'+a.horario_fim : 'Sem horario'} | ${a.sala||'Sem sala'}</div>
@@ -4554,7 +4559,7 @@ function renderManage() {
     const isCustom = all.indexOf(a) >= defaultClasses.length;
     const dayStr = ['Dom','Seg','Ter','Qua','Qui','Sex','Sab'][d.getDay()];
 
-    return `<tr class="${isCancelled?'cancelled-row':''}">
+    return `<tr class="${isCancelled?'cancelled-row':''}${isTaught(a)?' taught-row':''}">
       <td><strong>${dayStr}</strong> ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}</td>
       <td>${a.horario_inicio ? '<strong>'+a.horario_inicio+'</strong>-'+a.horario_fim : '<span style="color:var(--accent);font-weight:600">Sem horario</span>'}</td>
       <td><strong>${a.disciplina}</strong></td>

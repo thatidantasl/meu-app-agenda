@@ -1905,6 +1905,7 @@ body {
   <div class="tab" data-tab="manage">&#128295; Gerenciar</div>
   <div class="tab" data-tab="grades">&#127942; Notas</div>
   <div class="tab" data-tab="dashboard">&#128200; Dashboard</div>
+  <div class="tab" data-tab="analytics">&#128202; Analises</div>
   <div class="tab" data-tab="chat">&#128172; Duvidas</div>
   <div class="tab" data-tab="config">&#9881; Config</div>
 </div>
@@ -1980,22 +1981,30 @@ body {
   <div class="tab-content" id="tab-review">
     <div class="progress-container">
       <div class="progress-header">
-        <span class="progress-label">Progresso Geral</span>
+        <span class="progress-label">Progresso de Revisao</span>
         <span class="progress-count" id="reviewProgressText">0/0</span>
       </div>
       <div class="progress-bar">
         <div class="progress-fill" id="reviewProgressBar" style="width:0%"></div>
       </div>
     </div>
+    <div id="reviewFocusAlert"></div>
+    <div style="font-size:0.7rem;color:var(--text-muted);margin:8px 0 12px;">Somente aulas teoricas a partir de 28/09/2026. Use &#128581; Ignorar para tirar aulas que nao precisam de revisao.</div>
     <div class="section-title">
-      <div class="icon green">&#9989;</div> Aulas Ministradas (Revisar)
+      <div class="icon green">&#128214;</div> Revisoes de hoje
     </div>
-    <div id="taughtClasses"></div>
+    <div id="srsDueList"></div>
     <div style="margin-top: 20px;">
       <div class="section-title">
-        <div class="icon orange">&#128204;</div> Aulas Pendentes
+        <div class="icon orange">&#128197;</div> Proximas revisoes
       </div>
-      <div id="pendingClasses"></div>
+      <div id="srsUpcomingList"></div>
+    </div>
+    <div style="margin-top: 20px;" id="srsIgnoredSection">
+      <div class="section-title">
+        <div class="icon purple">&#128581;</div> Aulas sem revisao
+      </div>
+      <div id="srsIgnoredList"></div>
     </div>
   </div>
 
@@ -2091,6 +2100,11 @@ body {
   <div class="tab-content" id="tab-dashboard">
     <div class="section-title"><div class="icon purple">&#128200;</div> Dashboard do Semestre</div>
     <div id="dashboardContent"></div>
+  </div>
+
+  <div class="tab-content" id="tab-analytics">
+    <div class="section-title"><div class="icon purple">&#128202;</div> Analises de Estudo</div>
+    <div id="analyticsContent"></div>
   </div>
 
   <!-- TAB: CONFIGURACOES -->
@@ -2343,6 +2357,27 @@ body {
   </div>
 </div>
 
+<!-- MODAL QUESTOES -->
+<div class="modal-overlay" id="questionsModal">
+  <div class="modal">
+    <h3>&#128221; Lancar questoes</h3>
+    <div id="qInfo" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:10px"></div>
+    <div class="form-group">
+      <label>Questoes respondidas (agora)</label>
+      <input type="number" id="qAnswered" min="0" step="1" placeholder="0">
+    </div>
+    <div class="form-group">
+      <label>Acertos (agora)</label>
+      <input type="number" id="qCorrect" min="0" step="1" placeholder="0">
+    </div>
+    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:10px">As novas respostas sao somadas ao total do assunto. &lt;70% = mais revisoes | &lt;30% = reforco emergencial (diario).</div>
+    <div class="modal-btns">
+      <button class="btn btn-secondary" onclick="closeQuestionsModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="submitQuestions()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL DETALHE -->
 <div class="modal-overlay" id="detailModal">
   <div class="modal">
@@ -2526,6 +2561,10 @@ let monitorias = JSON.parse(localStorage.getItem('m6_monitorias') || '[]');
 let customEvents = JSON.parse(localStorage.getItem('m6_custom') || '[]');
 let reviewedClasses = JSON.parse(localStorage.getItem('m6_reviewed') || '{}');
 let cancelledClasses = JSON.parse(localStorage.getItem('m6_cancelled') || '{}');
+let srsData = JSON.parse(localStorage.getItem('m6_srs') || '{}');
+let questionData = JSON.parse(localStorage.getItem('m6_questions') || '{}');
+let noReviewClasses = JSON.parse(localStorage.getItem('m6_noreview') || '{}');
+let reviewLog = JSON.parse(localStorage.getItem('m6_reviewlog') || '{}');
 let editingIndex = -1;
 
 function getAllClasses() { return [...defaultClasses, ...customEvents]; }
@@ -2784,7 +2823,11 @@ function autoBackup() {
 function saveCustom() { localStorage.setItem('m6_custom', JSON.stringify(customEvents)); incrementChangeCount(); }
 function saveReviewed() { localStorage.setItem('m6_reviewed', JSON.stringify(reviewedClasses)); incrementChangeCount(); }
 function saveCancelled() { localStorage.setItem('m6_cancelled', JSON.stringify(cancelledClasses)); incrementChangeCount(); }
+function saveNoReview() { localStorage.setItem('m6_noreview', JSON.stringify(noReviewClasses)); incrementChangeCount(); }
+function saveReviewLog() { localStorage.setItem('m6_reviewlog', JSON.stringify(reviewLog)); }
 function saveMonitorias() { localStorage.setItem('m6_monitorias', JSON.stringify(monitorias)); incrementChangeCount(); }
+function saveSRS() { localStorage.setItem('m6_srs', JSON.stringify(srsData)); incrementChangeCount(); }
+function saveQuestions() { localStorage.setItem('m6_questions', JSON.stringify(questionData)); incrementChangeCount(); }
 
 // ======================== IESC GROUP ========================
 // Dicionario com datas e temas IESC VI
@@ -2917,6 +2960,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     // Atualizar conteudo ao abrir abas especificas
     if (tab.dataset.tab === 'grades') { initGradesSelect(); renderGrades(); }
     if (tab.dataset.tab === 'dashboard') { renderDashboard(); }
+    if (tab.dataset.tab === 'analytics') { renderAnalytics(); }
     if (tab.dataset.tab === 'avaliacoes') { renderAllEvaluations(); }
     if (tab.dataset.tab === 'config') { renderSubjectColors(); renderIESCDates(); }
   });
@@ -2966,6 +3010,7 @@ function renderToday() {
         <div class="edit-actions">
           <button class="edit-btn edit" onclick="event.stopPropagation();openEditModalFor('${a.data}','${a.disciplina}')">&#9998; Editar</button>
           <button class="edit-btn strike" onclick="event.stopPropagation();toggleCancel('${a.data}','${a.disciplina}')">&#128683; Cancelar</button>
+          ${reviewToggleBtn(a.data, a.disciplina, a.tipo)}
           <button class="edit-btn delete" onclick="event.stopPropagation();deleteCustom('${a.data}','${a.disciplina}')">&#128465; Excluir</button>
         </div>
       </div>`;
@@ -3469,49 +3514,225 @@ function showDayDetail(ds) {
 }
 function closeDetailModal() { document.getElementById('detailModal').classList.remove('active'); }
 
-// ======================== REVISAO ========================
+// ======================== REVISAO ESPACADA (SRS) ========================
+const SRS_INTERVALS = [1, 7, 15];
+const REVIEW_START_DATE = '2026-09-28';
+const REVIEWABLE_TYPES = ['aula'];
+
+function addDaysStr(dateStr, n) {
+  const d = parseDate(dateStr);
+  d.setDate(d.getDate() + n);
+  return formatDate(d);
+}
+
+function getNextPRDate() {
+  const today = formatDate(new Date());
+  const prs = getAllClasses()
+    .filter(a => a.tipo === 'avaliacao' && a.data >= today && !cancelledClasses[a.data+'_'+a.disciplina])
+    .filter(a => /PR\s*(?:Teorica\s*)?[12]/i.test(a.tema || '') && !/chamada|vista/i.test(a.tema || ''))
+    .map(a => a.data)
+    .sort();
+  return prs[0] || null;
+}
+
+function getTemaPct(tema) {
+  const q = questionData[tema];
+  if (!q || !q.total) return null;
+  return Math.round(q.correct / q.total * 100);
+}
+
+function ensureSrs(a) {
+  const key = a.data + '_' + a.disciplina;
+  if (!srsData[key]) {
+    srsData[key] = {
+      disciplina: a.disciplina,
+      tema: a.tema || '',
+      stage: 0,
+      nextReview: addDaysStr(a.data, 1),
+      reviewCount: 0,
+      lastReviewed: null
+    };
+  }
+  return srsData[key];
+}
+
 function renderReview() {
   const all = getAllClasses();
   const today = formatDate(new Date());
 
-  const taught = all.filter(a => a.data < today && !cancelledClasses[a.data+'_'+a.disciplina]).sort((a,b)=>b.data.localeCompare(a.data));
-  const pending = all.filter(a => a.data >= today && !cancelledClasses[a.data+'_'+a.disciplina]).sort((a,b)=>a.data.localeCompare(b.data));
+  const taught = all.filter(a => 
+    a.data >= REVIEW_START_DATE && a.data < today &&
+    REVIEWABLE_TYPES.includes(a.tipo) &&
+    !cancelledClasses[a.data+'_'+a.disciplina] &&
+    !noReviewClasses[a.data+'_'+a.disciplina]
+  );
+  const ignored = all.filter(a => 
+    a.data >= REVIEW_START_DATE && a.data < today &&
+    REVIEWABLE_TYPES.includes(a.tipo) &&
+    !cancelledClasses[a.data+'_'+a.disciplina] &&
+    noReviewClasses[a.data+'_'+a.disciplina]
+  ).sort((a,b)=>a.data.localeCompare(b.data));
+
+  let changed = false;
+  taught.forEach(a => { if (!srsData[a.data+'_'+a.disciplina]) { ensureSrs(a); changed = true; } });
+  if (changed) saveSRS();
+
+  const nextPR = getNextPRDate();
+  const focusMode = nextPR !== null && (parseDate(nextPR) - parseDate(today)) / 86400000 <= 3;
 
   const totalTaught = taught.length;
-  const totalReviewed = taught.filter(a=>reviewedClasses[a.data+'_'+a.disciplina]).length;
-  const pct = totalTaught ? Math.round(totalReviewed/totalTaught*100) : 0;
+  const doneCount = taught.filter(a => (srsData[a.data+'_'+a.disciplina] || {}).reviewCount > 0).length;
+  const pct = totalTaught ? Math.round(doneCount / totalTaught * 100) : 0;
+  document.getElementById('reviewProgressText').textContent = doneCount + '/' + totalTaught + ' com 1a revisao';
+  document.getElementById('reviewProgressBar').style.width = pct + '%';
 
-  document.getElementById('reviewProgressText').textContent = totalReviewed+'/'+totalTaught+' revisadas';
-  document.getElementById('reviewProgressBar').style.width = pct+'%';
+  const focusAlert = document.getElementById('reviewFocusAlert');
+  if (focusAlert) {
+    focusAlert.innerHTML = (focusMode && nextPR)
+      ? '<div style="background:var(--accent-light);border:1px solid var(--accent);border-radius:10px;padding:12px;margin-bottom:12px;font-size:0.8rem;color:var(--text)">&#127919; <strong>Foco em prova!</strong> Faltam 3 dias ou menos para a PR (' + formatDateBR(parseDate(nextPR)).split(',')[0] + '). Revisoes rotineiras foram pausadas.</div>'
+      : '';
+  }
 
-  const renderReviewItem = (a, status) => {
+  const due = [];
+  const upcoming = [];
+  taught.forEach(a => {
+    const e = srsData[a.data+'_'+a.disciplina];
+    if (!e) return;
+    const until = (parseDate(e.nextReview) - parseDate(today)) / 86400000;
+    if (until <= 0) due.push({ a, e });
+    else upcoming.push({ a, e });
+  });
+  due.sort((x,y) => x.e.nextReview.localeCompare(y.e.nextReview));
+  upcoming.sort((x,y) => x.e.nextReview.localeCompare(y.e.nextReview));
+
+  const renderDueItem = ({a, e}) => {
     const tc = getTipoClass(a.tipo);
-    const d = parseDate(a.data);
-    const key = a.data+'_'+a.disciplina;
-    const isReviewed = reviewedClasses[key];
-    return `<div class="review-item ${status}">
-      <div class="review-check ${isReviewed?'checked':''}" onclick="toggleReview('${a.data}','${a.disciplina}')">${isReviewed?'&#10003;':''}</div>
+    const pctTema = getTemaPct(e.tema);
+    let pctBadge = '';
+    if (pctTema !== null) {
+      if (pctTema < 30) pctBadge = '<span class="badge" style="background:#fee2e2;color:#b91c1c;font-weight:700">&#128293; ' + pctTema + '%</span>';
+      else if (pctTema < 70) pctBadge = '<span class="badge" style="background:#fef3c7;color:#b45309;font-weight:700">&#9888;&#65039; ' + pctTema + '%</span>';
+      else pctBadge = '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700">&#10003; ' + pctTema + '%</span>';
+    }
+    const stageLabel = e.reviewCount === 0 ? '1a revisao' : (e.reviewCount + 1) + 'a revisao';
+    return `<div class="review-item taught" style="border-left:4px solid var(--primary)">
       <div class="review-info">
-        <div class="subject">${a.disciplina} <span class="badge ${tc}">${getTipoLabel(a.tipo)}</span></div>
-        <div class="topic">${a.tema}</div>
-        <div class="date">${formatDateBR(d).split(',')[0]}${a.horario_inicio?' | '+a.horario_inicio+'-'+a.horario_fim:''}${a.sala?' | '+a.sala:''}</div>
+        <div class="subject">${a.disciplina} <span class="badge ${tc}">${getTipoLabel(a.tipo)}</span> ${pctBadge}</div>
+        <div class="topic">${e.tema || a.tema}</div>
+        <div class="date">${stageLabel}${e.lastReviewed ? ' | ultima: ' + formatDateBR(parseDate(e.lastReviewed)).split(',')[0] : ''}</div>
       </div>
       <div class="review-actions">
-        <button class="edit-btn edit" onclick="openEditModalFor('${a.data}','${a.disciplina}')">&#9998;</button>
+        <button class="edit-btn strike" onclick="openQuestionsModal('${a.data}','${a.disciplina}')" title="Lancar questoes (respondidas/acertadas)">&#128221; Questoes</button>
+        <button class="edit-btn edit" onclick="markReviewDone('${a.data}','${a.disciplina}')" title="Marcar como revisada">&#10003; Revisada</button>
+        <button class="edit-btn delete" onclick="toggleNoReview('${a.data}','${a.disciplina}')" title="Nao revisar esta aula">&#128581; Ignorar</button>
       </div>
     </div>`;
   };
 
-  document.getElementById('taughtClasses').innerHTML = taught.length ? taught.map(a=>renderReviewItem(a,'taught')).join('') : '<div class="empty-state"><p>Nenhuma aula ministrada ainda</p></div>';
-  document.getElementById('pendingClasses').innerHTML = pending.length ? pending.map(a=>renderReviewItem(a,'pending')).join('') : '<div class="empty-state"><p>Todas as aulas foram ministradas!</p></div>';
+  const renderUpcomingItem = ({a, e}) => {
+    const tc = getTipoClass(a.tipo);
+    return `<div class="review-item pending">
+      <div class="review-info">
+        <div class="subject">${a.disciplina} <span class="badge ${tc}">${getTipoLabel(a.tipo)}</span></div>
+        <div class="topic">${e.tema || a.tema}</div>
+        <div class="date">Revisar em: ${formatDateBR(parseDate(e.nextReview)).split(',')[0]}</div>
+      </div>
+      <div class="review-actions">
+        <button class="edit-btn delete" onclick="toggleNoReview('${a.data}','${a.disciplina}')" title="Nao revisar esta aula">&#128581; Ignorar</button>
+      </div>
+    </div>`;
+  };
+
+  const renderIgnoredItem = (a) => {
+    const tc = getTipoClass(a.tipo);
+    return `<div class="review-item pending" style="opacity:0.55">
+      <div class="review-info">
+        <div class="subject">${a.disciplina} <span class="badge ${tc}">${getTipoLabel(a.tipo)}</span></div>
+        <div class="topic">${a.tema}</div>
+        <div class="date">${formatDateBR(parseDate(a.data)).split(',')[0]}</div>
+      </div>
+      <div class="review-actions">
+        <button class="edit-btn edit" onclick="toggleNoReview('${a.data}','${a.disciplina}')" title="Voltar a revisar">&#128260; Reativar</button>
+      </div>
+    </div>`;
+  };
+
+  document.getElementById('srsDueList').innerHTML = focusMode
+    ? '<div class="empty-state"><p>Revisoes pausadas — foco na prova.</p></div>'
+    : (due.length ? due.map(renderDueItem).join('') : '<div class="empty-state"><p>Nenhuma revisao para hoje. &#127881;</p></div>');
+  document.getElementById('srsUpcomingList').innerHTML = upcoming.length ? upcoming.map(renderUpcomingItem).join('') : '<div class="empty-state"><p>Nenhuma revisao futura agendada.</p></div>';
+  const ignoredSection = document.getElementById('srsIgnoredSection');
+  if (ignoredSection) ignoredSection.style.display = ignored.length ? '' : 'none';
+  document.getElementById('srsIgnoredList').innerHTML = ignored.length ? ignored.map(renderIgnoredItem).join('') : '';
 }
 
-function toggleReview(data, disciplina) {
-  const key = data+'_'+disciplina;
-  reviewedClasses[key] = !reviewedClasses[key];
-  saveReviewed();
+function toggleNoReview(data, disciplina) {
+  const key = data + '_' + disciplina;
+  if (noReviewClasses[key]) delete noReviewClasses[key];
+  else noReviewClasses[key] = true;
+  saveNoReview();
+  renderReview();
+  renderToday();
+  renderManage();
+}
+
+function reviewToggleBtn(data, disciplina, tipo) {
+  if (!REVIEWABLE_TYPES.includes(tipo)) return '';
+  const key = data + '_' + disciplina;
+  const ignored = !!noReviewClasses[key];
+  return '<button class="edit-btn ' + (ignored ? 'edit' : 'strike') + '" onclick="event.stopPropagation();toggleNoReview(\'' + data + '\',\'' + disciplina + '\')" title="' + (ignored ? 'Voltar a revisar' : 'Nao revisar esta aula') + '">' + (ignored ? '&#128260; Revisar' : '&#128581; Nao revisar') + '</button>';
+}
+
+function markReviewDone(data, disciplina) {
+  const key = data + '_' + disciplina;
+  const e = srsData[key];
+  if (!e) return;
+  const pct = getTemaPct(e.tema);
+  e.reviewCount++;
+  e.lastReviewed = formatDate(new Date());
+  if (pct !== null && pct < 70) {
+    e.stage = 0; // <70% volta para 1 dia (abaixo de 30% = emergencial/diario)
+  } else {
+    e.stage++;
+  }
+  const days = SRS_INTERVALS[Math.min(e.stage, 2)];
+  e.nextReview = addDaysStr(e.lastReviewed, days);
+  reviewLog[e.lastReviewed] = (reviewLog[e.lastReviewed] || 0) + 1;
+  saveReviewLog();
+  saveSRS();
   renderReview();
   updateHeader();
+}
+
+let questionTarget = null;
+function openQuestionsModal(data, disciplina) {
+  const key = data + '_' + disciplina;
+  const e = srsData[key];
+  if (!e) return;
+  questionTarget = e.tema || '';
+  const q = questionData[questionTarget] || { total: 0, correct: 0 };
+  const pct = getTemaPct(questionTarget);
+  document.getElementById('qInfo').innerHTML = 'Assunto: <strong>' + questionTarget + '</strong><br>Respondidas: ' + q.total + ' | Acertos: ' + q.correct + (pct !== null ? ' | Aproveitamento: ' + pct + '%' : '');
+  document.getElementById('qAnswered').value = '';
+  document.getElementById('qCorrect').value = '';
+  document.getElementById('questionsModal').classList.add('active');
+}
+function closeQuestionsModal() { document.getElementById('questionsModal').classList.remove('active'); }
+
+function submitQuestions() {
+  const answered = parseInt(document.getElementById('qAnswered').value) || 0;
+  const correct = parseInt(document.getElementById('qCorrect').value) || 0;
+  if (answered <= 0) { alert('Informe quantas questoes respondeu agora.'); return; }
+  if (correct < 0 || correct > answered) { alert('Acertos nao podem ser maiores que as respondidas.'); return; }
+  const q = questionData[questionTarget] || { total: 0, correct: 0 };
+  q.total += answered;
+  q.correct += correct;
+  q.history = q.history || [];
+  q.history.push({ d: formatDate(new Date()), answered: answered, correct: correct });
+  questionData[questionTarget] = q;
+  saveQuestions();
+  closeQuestionsModal();
+  renderReview();
 }
 
 // ======================== MONITORIAS ========================
@@ -4157,6 +4378,157 @@ function renderDashboard() {
   document.getElementById('dashboardContent').innerHTML = html;
 }
 
+let analyticsFilter = '';
+
+function renderAnalytics() {
+  const container = document.getElementById('analyticsContent');
+  if (!container) return;
+  const now = new Date();
+  const today = formatDate(now);
+
+  function heatColor(c) {
+    if (!c) return '#eef2f7';
+    if (c <= 1) return '#c7d2fe';
+    if (c <= 2) return '#a5b4fc';
+    if (c <= 3) return '#818cf8';
+    return '#6366f1';
+  }
+
+  // Mapeia assunto (tema) -> disciplina
+  const temaToDisc = {};
+  getAllClasses().forEach(a => { if (a.tema && !temaToDisc[a.tema]) temaToDisc[a.tema] = a.disciplina; });
+  const discOptions = [...new Set(Object.keys(questionData).map(t => temaToDisc[t]).filter(Boolean))].sort();
+
+  // ---- Relatorio semanal ----
+  const dow = (now.getDay() + 6) % 7; // 0 = Seg
+  const monday = new Date(now); monday.setDate(now.getDate() - dow);
+  let weekReviews = 0, weekQ = 0, weekC = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = formatDate(new Date(monday.getTime() + i * 86400000));
+    weekReviews += reviewLog[d] || 0;
+  }
+  Object.values(questionData).forEach(q => {
+    (q.history || []).forEach(h => {
+      if (h.d >= formatDate(monday) && h.d <= today) { weekQ += h.answered; weekC += h.correct; }
+    });
+  });
+  const weekPct = weekQ > 0 ? Math.round(weekC / weekQ * 100) : null;
+
+  let streak = 0;
+  let cur = new Date(now);
+  if (!(reviewLog[formatDate(cur)] > 0)) cur.setDate(cur.getDate() - 1);
+  while (reviewLog[formatDate(cur)] > 0) { streak++; cur.setDate(cur.getDate() - 1); }
+
+  const alertTemas = Object.keys(questionData)
+    .filter(t => questionData[t].total > 0 && getTemaPct(t) < 30)
+    .map(t => ({ tema: t, pct: getTemaPct(t) }));
+
+  const upcoming7 = getAllClasses()
+    .filter(a => a.tipo === 'avaliacao' && a.data >= today && a.data <= formatDate(new Date(now.getTime() + 7 * 86400000)) && !cancelledClasses[a.data + '_' + a.disciplina])
+    .sort((a, b) => a.data.localeCompare(b.data));
+
+  let reportHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:16px">';
+  reportHtml += '<div class="manage-stat"><div class="num">' + weekReviews + '</div><div class="lbl">Revisoes na semana</div></div>';
+  reportHtml += '<div class="manage-stat"><div class="num">' + weekQ + '</div><div class="lbl">Questoes na semana</div></div>';
+  reportHtml += '<div class="manage-stat"><div class="num" style="color:' + (weekPct !== null && weekPct >= 70 ? 'var(--success)' : (weekPct !== null ? 'var(--danger)' : 'var(--text-muted)')) + '">' + (weekPct !== null ? weekPct + '%' : '—') + '</div><div class="lbl">Acerto na semana</div></div>';
+  reportHtml += '<div class="manage-stat"><div class="num">' + streak + '</div><div class="lbl">Dias seguidos</div></div>';
+  reportHtml += '</div>';
+
+  if (alertTemas.length) {
+    reportHtml += '<div style="background:var(--danger-light);border:1px solid var(--danger);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.8rem">&#128680; <strong>Atencao (&lt;30%):</strong> ' + alertTemas.map(t => t.tema + ' (' + t.pct + '%)').join(', ') + '</div>';
+  }
+  if (upcoming7.length) {
+    reportHtml += '<div style="background:var(--accent-light);border:1px solid var(--accent);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.8rem">&#128221; <strong>Avaliacoes em 7 dias:</strong> ' + upcoming7.map(a => a.disciplina + ' (' + formatDateBR(parseDate(a.data)).split(',')[0] + ')').join(' · ') + '</div>';
+  }
+
+  // ---- Heatmap ----
+  const WEEKS = 16;
+  const heatStart = new Date(monday); heatStart.setDate(heatStart.getDate() - (WEEKS - 1) * 7);
+  let heatHtml = '<div style="display:flex;gap:4px;overflow-x:auto;padding:4px 0">';
+  heatHtml += '<div style="display:flex;flex-direction:column;gap:3px;margin-right:2px">';
+  ['Seg','Ter','Qua','Qui','Sex','Sab','Dom'].forEach((dn, i) => {
+    heatHtml += '<div style="height:14px;font-size:0.55rem;color:var(--text-muted);display:flex;align-items:center">' + (i % 2 === 0 ? dn : '') + '</div>';
+  });
+  heatHtml += '</div>';
+  for (let w = 0; w < WEEKS; w++) {
+    heatHtml += '<div style="display:flex;flex-direction:column;gap:3px">';
+    for (let d = 0; d < 7; d++) {
+      const dt = new Date(heatStart.getTime() + (w * 7 + d) * 86400000);
+      const ds = formatDate(dt);
+      const count = reviewLog[ds] || 0;
+      const isFuture = ds > today;
+      heatHtml += '<div title="' + ds + ' — ' + count + ' revisoes" style="width:14px;height:14px;border-radius:3px;background:' + (isFuture ? 'transparent' : heatColor(count)) + ';border:1px solid var(--border)"></div>';
+    }
+    heatHtml += '</div>';
+  }
+  heatHtml += '</div>';
+  heatHtml += '<div style="display:flex;align-items:center;gap:4px;font-size:0.6rem;color:var(--text-muted);margin-top:6px">Menos <span style="width:12px;height:12px;border-radius:3px;background:#eef2f7;border:1px solid var(--border);display:inline-block"></span> <span style="width:12px;height:12px;border-radius:3px;background:#c7d2fe;display:inline-block"></span> <span style="width:12px;height:12px;border-radius:3px;background:#a5b4fc;display:inline-block"></span> <span style="width:12px;height:12px;border-radius:3px;background:#818cf8;display:inline-block"></span> <span style="width:12px;height:12px;border-radius:3px;background:#6366f1;display:inline-block"></span> Mais</div>';
+
+  // ---- Desempenho por assunto ----
+  const temaRows = Object.keys(questionData)
+    .filter(t => questionData[t].total > 0)
+    .filter(t => !analyticsFilter || temaToDisc[t] === analyticsFilter)
+    .map(t => ({ tema: t, pct: getTemaPct(t), total: questionData[t].total, correct: questionData[t].correct }))
+    .sort((a, b) => b.pct - a.pct);
+
+  let barHtml = '';
+  if (temaRows.length) {
+    barHtml = temaRows.map(r => {
+      const color = r.pct < 30 ? 'var(--danger)' : (r.pct < 70 ? 'var(--accent)' : 'var(--success)');
+      return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:0.7rem;margin-bottom:3px"><span style="font-weight:600">' + r.tema + '</span><span style="color:' + color + ';font-weight:700">' + r.pct + '% (' + r.correct + '/' + r.total + ')</span></div><div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden"><div style="height:100%;width:' + r.pct + '%;background:' + color + ';border-radius:6px"></div></div></div>';
+    }).join('');
+  } else {
+    barHtml = '<div class="empty-state"><p>Registre questoes (aba Revisao) para ver o desempenho por assunto.</p></div>';
+  }
+
+  // ---- Evolucao do desempenho ----
+  const allPts = [];
+  Object.keys(questionData).forEach(t => {
+    if (analyticsFilter && temaToDisc[t] !== analyticsFilter) return;
+    (questionData[t].history || []).forEach(h => allPts.push(h));
+  });
+  allPts.sort((a, b) => a.d.localeCompare(b.d));
+  let tot = 0, corr = 0;
+  const series = allPts.map(p => { tot += p.answered; corr += p.correct; return { d: p.d, pct: tot > 0 ? Math.round(corr / tot * 100) : 0 }; });
+
+  let chartHtml = '';
+  if (series.length >= 2) {
+    const W = 600, H = 170, L = 34, R = 8, T = 12, B = 22;
+    const x = i => L + (W - L - R) * (i / (series.length - 1));
+    const y = p => T + (H - T - B) * (1 - p / 100);
+    const line = series.map((s, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(s.pct).toFixed(1)).join(' ');
+    const area = line + ' L' + x(series.length - 1).toFixed(1) + ',' + (H - B) + ' L' + x(0).toFixed(1) + ',' + (H - B) + ' Z';
+    const y70 = y(70).toFixed(1);
+    chartHtml = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' +
+      '<line x1="' + L + '" y1="' + (H - B) + '" x2="' + W + '" y2="' + (H - B) + '" stroke="var(--border)"/>' +
+      '<line x1="' + L + '" y1="' + y70 + '" x2="' + W + '" y2="' + y70 + '" stroke="var(--accent)" stroke-dasharray="4 4"/>' +
+      '<text x="' + (L - 6) + '" y="' + (parseFloat(y70) + 3) + '" font-size="8" fill="var(--accent)" text-anchor="end">70%</text>' +
+      '<path d="' + area + '" fill="rgba(99,102,241,0.15)"/>' +
+      '<path d="' + line + '" fill="none" stroke="#6366f1" stroke-width="2"/>' +
+      series.map((s, i) => '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(s.pct).toFixed(1) + '" r="3" fill="#6366f1"><title>' + s.d + ' — ' + s.pct + '%</title></circle>').join('') +
+      '</svg>';
+  } else {
+    chartHtml = '<div class="empty-state"><p>Registre questoes ao longo do tempo para ver a evolucao.</p></div>';
+  }
+
+  const filterSelect = '<div style="margin-bottom:14px"><label style="font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-right:8px">Disciplina:</label><select onchange="setAnalyticsFilter(this.value)" style="padding:8px 12px;border:2px solid var(--border);border-radius:8px;font-size:0.8rem;background:var(--bg);font-family:inherit;color:var(--text)">' +
+    '<option value=""' + (!analyticsFilter ? ' selected' : '') + '>Todas</option>' +
+    discOptions.map(d => '<option value="' + d + '"' + (analyticsFilter === d ? ' selected' : '') + '>' + d + '</option>').join('') +
+    '</select></div>';
+
+  container.innerHTML =
+    filterSelect +
+    '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#128221; Relatorio semanal</div>' + reportHtml + '</div>' +
+    '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#128293; Heatmap de revisoes</div>' + heatHtml + '</div>' +
+    '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#128202; Desempenho por assunto' + (analyticsFilter ? ' — ' + analyticsFilter : '') + '</div>' + barHtml + '</div>' +
+    '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#128200; Evolucao do desempenho (' + (analyticsFilter || 'global') + ')</div>' + chartHtml + '</div>';
+}
+
+function setAnalyticsFilter(v) {
+  analyticsFilter = v;
+  renderAnalytics();
+}
+
 function renderMonitorias() {
   const list = document.getElementById('monitoriaList');
   if (!monitorias.length) { list.innerHTML='<div class="empty-state"><div class="icon">&#128218;</div><p>Nenhuma monitoria cadastrada.<br>Clique em "+ Adicionar" para comecar.</p></div>'; return; }
@@ -4314,6 +4686,18 @@ function openEditModalFor(data, disciplina) {
 
 function closeEditModal() { document.getElementById('editModal').classList.remove('active'); }
 
+function findConflicts(obj, excludeKey) {
+  if (!obj.horario_inicio || !obj.horario_fim) return [];
+  const all = getAllClasses();
+  return all.filter(a => {
+    const k = a.data + '_' + a.disciplina;
+    if (k === excludeKey) return false;
+    if (a.data !== obj.data) return false;
+    if (!a.horario_inicio || !a.horario_fim) return false;
+    return obj.horario_inicio < a.horario_fim && a.horario_inicio < obj.horario_fim;
+  });
+}
+
 function saveEdit() {
   const obj = {
     disciplina: document.getElementById('editDisciplina').value,
@@ -4327,6 +4711,20 @@ function saveEdit() {
     tipo: document.getElementById('editTipo').value
   };
   if (!obj.disciplina || !obj.data || !obj.tema) { alert('Preencha disciplina, data e tema'); return; }
+
+  // Alerta de conflito de horario
+  if (obj.horario_inicio && obj.horario_fim) {
+    let excludeKey = null;
+    if (editingIndex !== -1) {
+      const orig = getAllClasses()[editingIndex];
+      if (orig) excludeKey = orig.data + '_' + orig.disciplina;
+    }
+    const conflicts = findConflicts(obj, excludeKey);
+    if (conflicts.length) {
+      const list = conflicts.map(c => '• ' + c.disciplina + ' ' + c.horario_inicio + '-' + c.horario_fim + ' (' + c.tema + ')').join('\n');
+      if (!confirm('⚠️ Conflito de horario detectado com:\n\n' + list + '\n\nSalvar mesmo assim?')) return;
+    }
+  }
 
   const status = document.getElementById('editStatus').value;
   const key = obj.data+'_'+obj.disciplina;
@@ -4537,6 +4935,7 @@ function renderManage() {
           <div class="manage-item-actions">
             <button class="manage-item-btn" onclick="openEditModalFor('${a.data}','${a.disciplina}')">&#9998;</button>
             <button class="manage-item-btn" onclick="toggleCancel('${a.data}','${a.disciplina}');renderManage();">${isCancelled?'&#9878;':'&#128683;'}</button>
+            ${REVIEWABLE_TYPES.includes(a.tipo) ? '<button class="manage-item-btn" onclick="toggleNoReview(\''+a.data+'\',\''+a.disciplina+'\')" title="'+(noReviewClasses[key]?'Voltar a revisar':'Nao revisar')+'">'+(noReviewClasses[key]?'&#128260;':'&#128581;')+'</button>' : ''}
             ${isCustom ? '<button class="manage-item-btn" onclick="deleteCustom(\''+a.data+'\',\''+a.disciplina+'\')">&#128465;</button>' : ''}
           </div>
         </div>`;
@@ -4570,6 +4969,7 @@ function renderManage() {
       <td class="actions-cell">
         <button class="edit-btn edit" onclick="openEditModalFor('${a.data}','${a.disciplina}')" title="Editar">&#9998;</button>
         <button class="edit-btn strike" onclick="toggleCancel('${a.data}','${a.disciplina}');renderManage();" title="${isCancelled?'Restaurar':'Cancelar'}">${isCancelled?'&#9878;':'&#128683;'}</button>
+        ${REVIEWABLE_TYPES.includes(a.tipo) ? '<button class="edit-btn '+(noReviewClasses[key]?'edit':'strike')+'" onclick="toggleNoReview(\''+a.data+'\',\''+a.disciplina+'\')" title="'+(noReviewClasses[key]?'Voltar a revisar':'Nao revisar')+'">'+(noReviewClasses[key]?'&#128260;':'&#128581;')+'</button>' : ''}
         ${isCustom ? '<button class="edit-btn delete" onclick="deleteCustom(\''+a.data+'\',\''+a.disciplina+'\')" title="Excluir">&#128465;</button>' : ''}
       </td>
     </tr>`;
@@ -4620,7 +5020,11 @@ function exportAllData() {
       customSubjects: JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]'),
       iescDatas: JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}'),
       iescGroup: localStorage.getItem('m6_iesc_group') || '',
-      grades: gradesData
+      grades: gradesData,
+      srs: srsData,
+      questions: questionData,
+      noReview: noReviewClasses,
+      reviewLog: reviewLog
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], {type: 'application/json;charset=utf-8'});
@@ -4669,6 +5073,22 @@ function importAllData(event) {
             gradesData = data.grades;
             saveGrades();
           }
+          if (data.srs) {
+            srsData = data.srs;
+            saveSRS();
+          }
+          if (data.questions) {
+            questionData = data.questions;
+            saveQuestions();
+          }
+          if (data.noReview) {
+            noReviewClasses = data.noReview;
+            saveNoReview();
+          }
+          if (data.reviewLog) {
+            reviewLog = data.reviewLog;
+            saveReviewLog();
+          }
           // Reaplicar na memoria
           updateDiscColors();
           loadDefaultOverrides();
@@ -4715,6 +5135,10 @@ function importFromText() {
         if (data.customSubjects) localStorage.setItem('m6_custom_subjects', JSON.stringify(data.customSubjects));
         if (data.iescDatas) localStorage.setItem('m6_iesc_datas', JSON.stringify(data.iescDatas));
         if (data.grades) { gradesData = data.grades; saveGrades(); }
+        if (data.srs) { srsData = data.srs; saveSRS(); }
+        if (data.questions) { questionData = data.questions; saveQuestions(); }
+        if (data.noReview) { noReviewClasses = data.noReview; saveNoReview(); }
+        if (data.reviewLog) { reviewLog = data.reviewLog; saveReviewLog(); }
         updateDiscColors();
         loadDefaultOverrides();
         if (data.config) {
@@ -4890,7 +5314,11 @@ function getShareData() {
     e: customEvents,
     grid: JSON.parse(localStorage.getItem('m6_grid') || '{}'),
     g: localStorage.getItem('m6_iesc_group') || '',
-    grades: gradesData
+    grades: gradesData,
+    srs: srsData,
+    questions: questionData,
+    noReview: noReviewClasses,
+    reviewLog: reviewLog
   });
 }
 
@@ -4954,7 +5382,11 @@ function copyToClipboard() {
     customEvents: customEvents,
     gridFixa: JSON.parse(localStorage.getItem('m6_grid') || '{}'),
     iescGroup: localStorage.getItem('m6_iesc_group') || '',
-    grades: gradesData
+    grades: gradesData,
+    srs: srsData,
+    questions: questionData,
+    noReview: noReviewClasses,
+    reviewLog: reviewLog
   });
   navigator.clipboard.writeText(data).then(() => {
     alert('Dados copiados com sucesso!\n\nNo outro dispositivo:\n1. Abra a agenda\n2. Clique em "Colar" no header\n3. Pronto!');
@@ -5039,7 +5471,11 @@ async function saveToCloud(silent) {
     customSubjects: JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]'),
     iescDatas: JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}'),
     iescGroup: localStorage.getItem('m6_iesc_group') || '',
-    grades: gradesData
+    grades: gradesData,
+    srs: srsData,
+    questions: questionData,
+    noReview: noReviewClasses,
+    reviewLog: reviewLog
   };
   
   try {
@@ -5124,6 +5560,10 @@ async function loadFromCloud(silent) {
     if (data.iescDatas) localStorage.setItem('m6_iesc_datas', JSON.stringify(data.iescDatas));
     if (data.iescGroup) localStorage.setItem('m6_iesc_group', data.iescGroup);
     if (data.grades) { gradesData = data.grades; saveGrades(); }
+    if (data.srs) { srsData = data.srs; saveSRS(); }
+    if (data.questions) { questionData = data.questions; saveQuestions(); }
+    if (data.noReview) { noReviewClasses = data.noReview; saveNoReview(); }
+    if (data.reviewLog) { reviewLog = data.reviewLog; saveReviewLog(); }
     
     saveCustom(); saveMonitorias(); saveReviewed(); saveCancelled();
     updateDiscColors();
@@ -5150,6 +5590,12 @@ const _origSaveGrid = saveGridCell;
 saveGridCell = function() { _origSaveGrid(); autoSaveToCloud(); };
 const _origSaveGrades = saveGrades;
 saveGrades = function() { _origSaveGrades(); autoSaveToCloud(); };
+const _origSaveSRS = saveSRS;
+saveSRS = function() { _origSaveSRS(); autoSaveToCloud(); };
+const _origSaveQuestions = saveQuestions;
+saveQuestions = function() { _origSaveQuestions(); autoSaveToCloud(); };
+const _origSaveNoReview = saveNoReview;
+saveNoReview = function() { _origSaveNoReview(); autoSaveToCloud(); };
 
 // Inicializa a agenda diretamente (sem login)
 initAgenda();

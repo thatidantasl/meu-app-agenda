@@ -1867,6 +1867,23 @@ body {
 </head>
 <body>
 
+<div class="login-overlay hidden" id="loginOverlay">
+  <div class="login-card" id="loginCard">
+    <div class="logo">&#128218;</div>
+    <h2>Agenda M6</h2>
+    <div class="sub">Escolha seu perfil para entrar</div>
+    <select id="loginProfile" onchange="onProfileSelect()" style="width:100%;padding:12px 14px;border:2px solid rgba(255,255,255,0.2);border-radius:14px;background:rgba(255,255,255,0.1);color:white;font-size:0.9rem;outline:none;margin-bottom:10px;font-family:inherit;text-align:center"></select>
+    <input type="text" id="loginNewProfile" placeholder="Nome do novo perfil (ex: lucas)" style="display:none;margin-bottom:10px;letter-spacing:1px">
+    <div class="pwd-wrapper">
+      <input type="password" id="loginPassword" placeholder="Senha">
+      <button type="button" class="pwd-toggle" onclick="toggleLoginPwd()">&#128065;</button>
+    </div>
+    <button type="button" class="login-btn" onclick="checkLogin()">Entrar</button>
+    <div class="login-error" id="loginError"></div>
+    <div style="font-size:0.65rem;color:rgba(255,255,255,0.45);margin-top:10px">Primeiro acesso a um perfil? A senha digitada vira a senha dele.</div>
+  </div>
+</div>
+
 <div class="header">
   <div class="header-top">
     <div>
@@ -1885,6 +1902,7 @@ body {
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importAllData(event)">
       <button id="darkModeBtn" onclick="toggleDarkMode()" style="background:rgba(255,255,255,0.2);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:6px 10px;font-size:0.8rem;cursor:pointer;font-family:inherit" title="Modo escuro">&#9790;</button>
       <button id="notifBtn" onclick="toggleNotifications()" style="background:rgba(255,255,255,0.2);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:6px 10px;font-size:0.8rem;cursor:pointer;font-family:inherit" title="Notificacoes">&#128276;</button>
+      <button class="btn btn-sm" onclick="trocarPerfil()" style="background:rgba(255,255,255,0.2);color:white;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:6px 10px;font-size:0.7rem;cursor:pointer;font-family:inherit" title="Trocar de perfil">&#128100; Trocar perfil</button>
     </div>
     <div class="date-badge" id="headerDate"></div>
   </div>
@@ -2165,7 +2183,7 @@ body {
         </div>
         <button class="config-btn config-btn-primary" style="width:auto;padding:10px 18px" onclick="trocarSenha()">Alterar</button>
       </div>
-      <p style="font-size:0.7rem;color:var(--text-muted);margin-top:8px;text-align:center">Dica: chocolate minusculo e aniversario</p>
+      <p style="font-size:0.7rem;color:var(--text-muted);margin-top:8px;text-align:center">A senha e individual para cada perfil.</p>
       <button class="config-btn config-btn-secondary" style="width:100%;margin-top:6px;font-size:0.7rem" onclick="resetCloudToken()">&#128274; Trocar token da nuvem</button>
       <button class="config-btn config-btn-secondary" style="margin-top:8px" onclick="sair()">Sair (bloquear agenda novamente)</button>
     </div>
@@ -2437,56 +2455,97 @@ body {
 </div>
 
 <script>
-// ======================== LOGIN SYSTEM ========================
-const LOGIN_HINT = 'chocolate minusculo e aniversario';
+// ======================== PERFIS (multi-usuario) ========================
+let activeProfile = localStorage.getItem('m6_active_profile') || '';
+function sk(key) { return (activeProfile ? activeProfile + '::' : '') + key; }
+function pk(profile, key) { return profile + '::' + key; }
 
-// Hash SHA-256 usando SubtleCrypto
+// Migracao unica: move dados antigos (m6_*) para o perfil "tati"
+(function migrateProfiles() {
+  if (localStorage.getItem('m6_profiles')) return;
+  const skip = ['m6_profiles', 'm6_active_profile', 'm6_pwd_hash', 'm6_auth'];
+  const legacy = Object.keys(localStorage).filter(k => k.indexOf('m6_') === 0 && skip.indexOf(k) === -1);
+  const hasData = legacy.length > 0;
+  legacy.forEach(k => { localStorage.setItem('tati::' + k, localStorage.getItem(k)); localStorage.removeItem(k); });
+  localStorage.removeItem('m6_pwd_hash');
+  localStorage.removeItem('m6_auth');
+  if (hasData) {
+    localStorage.setItem('m6_profiles', JSON.stringify(['tati']));
+    localStorage.setItem('m6_active_profile', 'tati');
+    activeProfile = 'tati';
+  } else {
+    localStorage.setItem('m6_profiles', JSON.stringify([]));
+  }
+})();
+
+// ======================== LOGIN SYSTEM ========================
+
+// Hash SHA-256 usando SubtleCrypto (com fallback para contextos nao seguros)
 async function hashPassword(pwd) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(pwd);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  try {
+    if (crypto && crypto.subtle) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(pwd);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch(e) {}
+  let h = 5381;
+  for (let i = 0; i < pwd.length; i++) { h = ((h << 5) + h) ^ pwd.charCodeAt(i); }
+  return 'fb_' + (h >>> 0).toString(16) + '_' + pwd.length;
+}
+
+function getProfiles() { return JSON.parse(localStorage.getItem('m6_profiles') || '[]'); }
+function saveProfiles(list) { localStorage.setItem('m6_profiles', JSON.stringify(list)); }
+
+function renderLogin() {
+  const profiles = getProfiles();
+  const sel = document.getElementById('loginProfile');
+  let opts = profiles.map(p => '<option value="' + p + '">' + p + '</option>').join('');
+  opts += '<option value="__new__">➕ Novo perfil...</option>';
+  sel.innerHTML = opts;
+  sel.value = profiles.length ? profiles[0] : '__new__';
+  document.getElementById('loginNewProfile').style.display = (sel.value === '__new__') ? 'block' : 'none';
+  document.getElementById('loginError').textContent = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginOverlay').classList.remove('hidden');
+}
+
+function onProfileSelect() {
+  const sel = document.getElementById('loginProfile');
+  document.getElementById('loginNewProfile').style.display = (sel.value === '__new__') ? 'block' : 'none';
 }
 
 async function checkLogin() {
-  const input = document.getElementById('loginPassword');
   const error = document.getElementById('loginError');
-  const pwd = input.value.trim();
-  
-  if (!pwd) {
-    error.textContent = 'Digite a senha';
-    return;
+  const pwd = document.getElementById('loginPassword').value.trim();
+  const sel = document.getElementById('loginProfile');
+  let profile = sel.value;
+  if (profile === '__new__') {
+    profile = document.getElementById('loginNewProfile').value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
   }
+  if (!profile) { error.textContent = 'Escolha ou digite um nome de perfil'; return; }
+  if (!pwd || pwd.length < 3) { error.textContent = 'Senha deve ter pelo menos 3 caracteres'; return; }
 
-  const storedHash = localStorage.getItem('m6_pwd_hash');
   const hash = await hashPassword(pwd);
+  const storedHash = localStorage.getItem(pk(profile, 'm6_pwd_hash'));
+  const profiles = getProfiles();
 
-  if (!storedHash) {
-    // Primeiro acesso: criar senha
-    localStorage.setItem('m6_pwd_hash', hash);
-    localStorage.setItem('m6_auth', '1');
-    hideLogin();
-  } else if (hash === storedHash) {
-    // Senha correta
-    localStorage.setItem('m6_auth', '1');
-    hideLogin();
-  } else {
-    // Senha incorreta
+  if (storedHash && hash !== storedHash) {
     error.textContent = 'Senha incorreta';
     document.getElementById('loginCard').classList.add('shake');
     setTimeout(() => document.getElementById('loginCard').classList.remove('shake'), 500);
-    input.value = '';
-    input.focus();
+    document.getElementById('loginPassword').value = '';
+    return;
   }
-}
+  if (!storedHash) {
+    localStorage.setItem(pk(profile, 'm6_pwd_hash'), hash);
+    if (profiles.indexOf(profile) === -1) { profiles.push(profile); saveProfiles(profiles); }
+  }
 
-function showLoginHint() {
-  const hint = document.getElementById('loginHint');
-  hint.classList.toggle('show');
-  if (hint.classList.contains('show')) {
-    hint.textContent = 'Dica: ' + LOGIN_HINT;
-  }
+  localStorage.setItem('m6_active_profile', profile);
+  location.reload();
 }
 
 function toggleLoginPwd() {
@@ -2499,15 +2558,6 @@ function toggleConfigPwd() {
   inp.type = inp.type === 'password' ? 'text' : 'password';
 }
 
-function hideLogin() {
-  document.getElementById('loginOverlay').classList.add('hidden');
-  // Inicializa a agenda se ainda nao foi
-  if (!window._agendaInitialized) {
-    window._agendaInitialized = true;
-    initAgenda();
-  }
-}
-
 // Funcao para trocar senha (chamada da aba Config)
 async function changePassword(newPwd) {
   if (!newPwd || newPwd.length < 3) {
@@ -2515,8 +2565,7 @@ async function changePassword(newPwd) {
     return false;
   }
   const hash = await hashPassword(newPwd);
-  localStorage.setItem('m6_pwd_hash', hash);
-  localStorage.setItem('m6_auth', '1');
+  localStorage.setItem(sk('m6_pwd_hash'), hash);
   return true;
 }
 
@@ -2531,17 +2580,24 @@ async function trocarSenha() {
 }
 
 function resetCloudToken() {
-  if (confirm('Limpar o token da nuvem? Voce precisara digitar um novo token ao salvar.')) {
-    localStorage.removeItem('m6_gist_token');
-    localStorage.removeItem('m6_gist_id');
-    localStorage.removeItem('m6_gist_raw_url');
+  if (confirm('Limpar o token da nuvem deste perfil? Voce precisara digitar um novo token ao salvar.')) {
+    localStorage.removeItem(sk('m6_gist_token'));
+    localStorage.removeItem(sk('m6_gist_id'));
+    localStorage.removeItem(sk('m6_gist_raw_url'));
     alert('Token removido. Ao clicar em Nuvem, voce podera colocar um novo.');
   }
 }
 
 function sair() {
-  if (confirm('Bloquear a agenda? Sera necessario digitar a senha novamente.')) {
-    localStorage.removeItem('m6_auth');
+  if (confirm('Bloquear a agenda? Sera necessario escolher o perfil e digitar a senha novamente.')) {
+    localStorage.removeItem('m6_active_profile');
+    location.reload();
+  }
+}
+
+function trocarPerfil() {
+  if (confirm('Trocar de perfil? Voce voltara para a tela de login.')) {
+    localStorage.removeItem('m6_active_profile');
     location.reload();
   }
 }
@@ -2557,21 +2613,21 @@ loadDefaultOverrides();
 let currentWeekOffset = 0;
 let currentMonth = new Date().getMonth();
 let currentYear = new Date().getFullYear();
-let monitorias = JSON.parse(localStorage.getItem('m6_monitorias') || '[]');
-let customEvents = JSON.parse(localStorage.getItem('m6_custom') || '[]');
-let reviewedClasses = JSON.parse(localStorage.getItem('m6_reviewed') || '{}');
-let cancelledClasses = JSON.parse(localStorage.getItem('m6_cancelled') || '{}');
-let srsData = JSON.parse(localStorage.getItem('m6_srs') || '{}');
-let questionData = JSON.parse(localStorage.getItem('m6_questions') || '{}');
-let noReviewClasses = JSON.parse(localStorage.getItem('m6_noreview') || '{}');
-let reviewLog = JSON.parse(localStorage.getItem('m6_reviewlog') || '{}');
+let monitorias = JSON.parse(localStorage.getItem(sk('m6_monitorias')) || '[]');
+let customEvents = JSON.parse(localStorage.getItem(sk('m6_custom')) || '[]');
+let reviewedClasses = JSON.parse(localStorage.getItem(sk('m6_reviewed')) || '{}');
+let cancelledClasses = JSON.parse(localStorage.getItem(sk('m6_cancelled')) || '{}');
+let srsData = JSON.parse(localStorage.getItem(sk('m6_srs')) || '{}');
+let questionData = JSON.parse(localStorage.getItem(sk('m6_questions')) || '{}');
+let noReviewClasses = JSON.parse(localStorage.getItem(sk('m6_noreview')) || '{}');
+let reviewLog = JSON.parse(localStorage.getItem(sk('m6_reviewlog')) || '{}');
 let editingIndex = -1;
 
 function getAllClasses() { return [...defaultClasses, ...customEvents]; }
 
 // Persistir edicoes em aulas padrao (para nao perder no F5)
 function loadDefaultOverrides() {
-  const overrides = JSON.parse(localStorage.getItem('m6_default_overrides') || '{}');
+  const overrides = JSON.parse(localStorage.getItem(sk('m6_default_overrides')) || '{}');
   defaultClasses.forEach(a => {
     const key = a.data + '_' + a.disciplina;
     if (overrides[key]) Object.assign(a, overrides[key]);
@@ -2579,7 +2635,7 @@ function loadDefaultOverrides() {
 }
 
 function saveDefaultOverride(aula) {
-  const overrides = JSON.parse(localStorage.getItem('m6_default_overrides') || '{}');
+  const overrides = JSON.parse(localStorage.getItem(sk('m6_default_overrides')) || '{}');
   const key = aula.data + '_' + aula.disciplina;
   overrides[key] = {
     horario_inicio: aula.horario_inicio,
@@ -2590,7 +2646,7 @@ function saveDefaultOverride(aula) {
     tipo: aula.tipo,
     anotacoes: aula.anotacoes
   };
-  localStorage.setItem('m6_default_overrides', JSON.stringify(overrides));
+  localStorage.setItem(sk('m6_default_overrides'), JSON.stringify(overrides));
 }
 
 // ======================== UTILS ========================
@@ -2612,10 +2668,10 @@ function getWeekStart(date) { const d = new Date(date); const day = d.getDay(); 
 // ======================== DARK MODE ========================
 function toggleDarkMode() {
   const modes = ['light', 'dark', 'auto'];
-  const current = localStorage.getItem('m6_dark_mode') || 'auto';
+  const current = localStorage.getItem(sk('m6_dark_mode')) || 'auto';
   const idx = modes.indexOf(current);
   const next = modes[(idx + 1) % 3];
-  localStorage.setItem('m6_dark_mode', next);
+  localStorage.setItem(sk('m6_dark_mode'), next);
   applyTheme();
 }
 
@@ -2623,12 +2679,12 @@ function loadDarkMode() {
   applyTheme();
   // Escuta mudancas no sistema operacional
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (localStorage.getItem('m6_dark_mode') === 'auto') applyTheme();
+    if (localStorage.getItem(sk('m6_dark_mode')) === 'auto') applyTheme();
   });
 }
 
 function applyTheme() {
-  const mode = localStorage.getItem('m6_dark_mode') || 'auto';
+  const mode = localStorage.getItem(sk('m6_dark_mode')) || 'auto';
   const btn = document.getElementById('darkModeBtn');
   let isDark;
   if (mode === 'auto') {
@@ -2644,7 +2700,7 @@ function applyTheme() {
 
 // Cor de destaque customizavel
 function loadAccentColor() {
-  const hue = localStorage.getItem('m6_accent_hue');
+  const hue = localStorage.getItem(sk('m6_accent_hue'));
   if (hue) {
     document.documentElement.style.setProperty('--accent-hue', hue);
   }
@@ -2656,14 +2712,14 @@ function setAccentColor(hex) {
   document.documentElement.style.setProperty('--primary-dark', hex);
   // Gera cor mais clara para light mode (mistura com branco)
   document.documentElement.style.setProperty('--primary-light', hex + '22');
-  localStorage.setItem('m6_accent_color', hex);
+  localStorage.setItem(sk('m6_accent_color'), hex);
   if (document.getElementById('accentColorPicker')) {
     document.getElementById('accentColorPicker').value = hex;
   }
 }
 
 function loadAccentColor() {
-  const saved = localStorage.getItem('m6_accent_color');
+  const saved = localStorage.getItem(sk('m6_accent_color'));
   if (saved) setAccentColor(saved);
 }
 
@@ -2679,7 +2735,7 @@ function toggleNotifications() {
   
   if (Notification.permission === 'granted') {
     notifEnabled = !notifEnabled;
-    localStorage.setItem('m6_notif_enabled', notifEnabled);
+    localStorage.setItem(sk('m6_notif_enabled'), notifEnabled);
     updateNotifButton();
     if (notifEnabled) startNotifChecker();
     else stopNotifChecker();
@@ -2687,7 +2743,7 @@ function toggleNotifications() {
     Notification.requestPermission().then(permission => {
       if (permission === 'granted') {
         notifEnabled = true;
-        localStorage.setItem('m6_notif_enabled', true);
+        localStorage.setItem(sk('m6_notif_enabled'), true);
         updateNotifButton();
         startNotifChecker();
       }
@@ -2729,12 +2785,12 @@ function checkUpcomingClasses() {
     if (classTime > now && classTime <= in30) {
       const key = todayStr + '_' + a.disciplina;
       const notifKey = 'm6_notif_' + key + '_' + a.horario_inicio;
-      if (!localStorage.getItem(notifKey)) {
+      if (!localStorage.getItem(sk(notifKey))) {
         new Notification('Aula em breve!', {
           body: `${a.disciplina} as ${a.horario_inicio}\n${a.tema}`,
           icon: 'ðŸ“š'
         });
-        localStorage.setItem(notifKey, '1');
+        localStorage.setItem(sk(notifKey), '1');
       }
     }
   });
@@ -2747,13 +2803,13 @@ function checkUpcomingEvaluations() {
     const diff = daysUntil(a.data);
     if (diff !== 1 && diff !== 7) return;
     const key = 'm6_notif_avaliacao_' + a.data + '_' + a.disciplina + '_' + diff;
-    if (localStorage.getItem(key)) return;
+    if (localStorage.getItem(sk(key))) return;
     const label = diff === 1 ? 'amanha' : 'em ' + diff + ' dias';
     const dateLabel = formatDateBR(parseDate(a.data)).replace(' de ' + parseDate(a.data).getFullYear(), '');
     new Notification('Prova ' + label + '!', {
       body: a.disciplina + ': ' + a.tema + '\n' + dateLabel
     });
-    localStorage.setItem(key, '1');
+    localStorage.setItem(sk(key), '1');
   });
 }
 
@@ -2814,20 +2870,20 @@ function autoBackup() {
       reviewedClasses: reviewedClasses,
       cancelledClasses: cancelledClasses,
       customEvents: customEvents,
-      iescGroup: localStorage.getItem('m6_iesc_group') || ''
+      iescGroup: localStorage.getItem(sk('m6_iesc_group')) || ''
     };
-    localStorage.setItem('m6_auto_backup', JSON.stringify(data));
+    localStorage.setItem(sk('m6_auto_backup'), JSON.stringify(data));
   } catch(e) {}
 }
 
-function saveCustom() { localStorage.setItem('m6_custom', JSON.stringify(customEvents)); incrementChangeCount(); }
-function saveReviewed() { localStorage.setItem('m6_reviewed', JSON.stringify(reviewedClasses)); incrementChangeCount(); }
-function saveCancelled() { localStorage.setItem('m6_cancelled', JSON.stringify(cancelledClasses)); incrementChangeCount(); }
-function saveNoReview() { localStorage.setItem('m6_noreview', JSON.stringify(noReviewClasses)); incrementChangeCount(); }
-function saveReviewLog() { localStorage.setItem('m6_reviewlog', JSON.stringify(reviewLog)); }
-function saveMonitorias() { localStorage.setItem('m6_monitorias', JSON.stringify(monitorias)); incrementChangeCount(); }
-function saveSRS() { localStorage.setItem('m6_srs', JSON.stringify(srsData)); incrementChangeCount(); }
-function saveQuestions() { localStorage.setItem('m6_questions', JSON.stringify(questionData)); incrementChangeCount(); }
+function saveCustom() { localStorage.setItem(sk('m6_custom'), JSON.stringify(customEvents)); incrementChangeCount(); }
+function saveReviewed() { localStorage.setItem(sk('m6_reviewed'), JSON.stringify(reviewedClasses)); incrementChangeCount(); }
+function saveCancelled() { localStorage.setItem(sk('m6_cancelled'), JSON.stringify(cancelledClasses)); incrementChangeCount(); }
+function saveNoReview() { localStorage.setItem(sk('m6_noreview'), JSON.stringify(noReviewClasses)); incrementChangeCount(); }
+function saveReviewLog() { localStorage.setItem(sk('m6_reviewlog'), JSON.stringify(reviewLog)); }
+function saveMonitorias() { localStorage.setItem(sk('m6_monitorias'), JSON.stringify(monitorias)); incrementChangeCount(); }
+function saveSRS() { localStorage.setItem(sk('m6_srs'), JSON.stringify(srsData)); incrementChangeCount(); }
+function saveQuestions() { localStorage.setItem(sk('m6_questions'), JSON.stringify(questionData)); incrementChangeCount(); }
 
 // ======================== IESC GROUP ========================
 // Dicionario com datas e temas IESC VI
@@ -2841,7 +2897,7 @@ const IESC_GRUPO_DEFAULT = {
 };
 
 function getIESCGroupData() {
-  const saved = JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}');
+  const saved = JSON.parse(localStorage.getItem(sk('m6_iesc_datas')) || '{}');
   // Mescla defaults com salvas (salvas tem prioridade)
   return { ...IESC_GRUPO_DEFAULT, ...saved };
 }
@@ -2882,12 +2938,12 @@ function applyGrupoIesc(bucket) {
 
 function saveIESCGroup() {
   const group = document.getElementById('iescGroupSelect').value;
-  localStorage.setItem('m6_iesc_group', group);
+  localStorage.setItem(sk('m6_iesc_group'), group);
   applyGrupoIesc(group);
 }
 
 function loadIESCGroup() {
-  const group = localStorage.getItem('m6_iesc_group') || '';
+  const group = localStorage.getItem(sk('m6_iesc_group')) || '';
   document.getElementById('iescGroupSelect').value = group;
   if (group) applyGrupoIesc(group);
 }
@@ -2918,9 +2974,9 @@ function addIESCDate() {
   if (isNaN(num)) return;
   const bucket = prompt('Grupo que recebe a TEORICA (AB ou CD):', 'AB');
   if (!['AB','CD'].includes(bucket?.toUpperCase())) { alert('Digite AB ou CD'); return; }
-  const saved = JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}');
+  const saved = JSON.parse(localStorage.getItem(sk('m6_iesc_datas')) || '{}');
   saved[data] = { base, praticaNumero: num, teoricaBucket: bucket.toUpperCase() };
-  localStorage.setItem('m6_iesc_datas', JSON.stringify(saved));
+  localStorage.setItem(sk('m6_iesc_datas'), JSON.stringify(saved));
   renderIESCDates();
   loadIESCGroup();
 }
@@ -2934,18 +2990,18 @@ function editIESCDate(data) {
   if (isNaN(num)) return;
   const bucket = prompt('Grupo TEORICA (AB ou CD):', current.teoricaBucket);
   if (!['AB','CD'].includes(bucket?.toUpperCase())) { alert('Digite AB ou CD'); return; }
-  const saved = JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}');
+  const saved = JSON.parse(localStorage.getItem(sk('m6_iesc_datas')) || '{}');
   saved[data] = { base: base || current.base, praticaNumero: num, teoricaBucket: bucket.toUpperCase() };
-  localStorage.setItem('m6_iesc_datas', JSON.stringify(saved));
+  localStorage.setItem(sk('m6_iesc_datas'), JSON.stringify(saved));
   renderIESCDates();
   loadIESCGroup();
 }
 
 function deleteIESCDate(data) {
   if (!confirm('Remover a data ' + data + '?')) return;
-  const saved = JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}');
+  const saved = JSON.parse(localStorage.getItem(sk('m6_iesc_datas')) || '{}');
   delete saved[data];
-  localStorage.setItem('m6_iesc_datas', JSON.stringify(saved));
+  localStorage.setItem(sk('m6_iesc_datas'), JSON.stringify(saved));
   renderIESCDates();
   loadIESCGroup();
 }
@@ -3173,7 +3229,7 @@ function renderGrid() {
   };
 
   // Carregar dados salvos do localStorage
-  const savedGrid = JSON.parse(localStorage.getItem('m6_grid') || '{}');
+  const savedGrid = JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}');
 
   let html = '<thead><tr><th style="width:100px">Horario</th>';
   dayNames.forEach(name => {
@@ -3261,7 +3317,7 @@ function renderMobileGrid() {
   
   document.getElementById('mobileGridDay').textContent = dayName;
   
-  const savedGrid = JSON.parse(localStorage.getItem('m6_grid') || '{}');
+  const savedGrid = JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}');
   const slots = ['07:50-08:40','08:40-09:30','09:40-10:30','10:30-11:20','11:20-12:10','12:10-13:00','13:00-13:50','13:50-14:40','14:40-15:30','15:40-16:30','16:30-17:20','17:20-18:10'];
   
   const gridData = {
@@ -3353,7 +3409,7 @@ function changeMobileDay(dir) {
 
 // Editar celula da grade fixa
 function openGridEdit(cellKey) {
-  const savedGrid = JSON.parse(localStorage.getItem('m6_grid') || '{}');
+  const savedGrid = JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}');
   const data = savedGrid[cellKey] || {};
   
   document.getElementById('gridModalTitle').textContent = 'âœï¸ Editar: ' + (data.disciplina || cellKey);
@@ -3398,10 +3454,10 @@ function deleteGridCell() {
   const cellKey = document.getElementById('gridCellKey').value;
   const disciplina = document.getElementById('gridDisciplina').value;
   if (!confirm('Remover "' + disciplina + '" da grade?\n\nCelula: ' + cellKey.replace(/_/g, ' ') + '\n\nIsso apenas remove da grade fixa, nao afeta as aulas ja agendadas.')) return;
-  const savedGrid = JSON.parse(localStorage.getItem('m6_grid') || '{}');
+  const savedGrid = JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}');
   // Salva marcador explicito de vazio para sobrescrever dados fixos
   savedGrid[cellKey] = { disciplina: '', sala: '', tipo: 'aula', iescGroup: '' };
-  localStorage.setItem('m6_grid', JSON.stringify(savedGrid));
+  localStorage.setItem(sk('m6_grid'), JSON.stringify(savedGrid));
   closeGridModal();
   renderGrid();
 }
@@ -3417,7 +3473,7 @@ function saveGridCell() {
   const tipo = document.getElementById('gridTipo').value;
   const iescGroup = document.getElementById('gridIESCGroup').value;
 
-  const savedGrid = JSON.parse(localStorage.getItem('m6_grid') || '{}');
+  const savedGrid = JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}');
   
   if (!disciplina) {
     // Salva marcador explicito de celula vazia para sobrescrever dados fixos
@@ -3426,7 +3482,7 @@ function saveGridCell() {
     savedGrid[cellKey] = { disciplina, sala, tipo, iescGroup };
   }
   
-  localStorage.setItem('m6_grid', JSON.stringify(savedGrid));
+  localStorage.setItem(sk('m6_grid'), JSON.stringify(savedGrid));
   closeGridModal();
   renderGrid();
 }
@@ -3748,8 +3804,8 @@ const DEFAULT_DISC_COLORS = {
 };
 
 function getDiscColors() {
-  const saved = JSON.parse(localStorage.getItem('m6_disc_colors') || '{}');
-  const custom = JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]');
+  const saved = JSON.parse(localStorage.getItem(sk('m6_disc_colors')) || '{}');
+  const custom = JSON.parse(localStorage.getItem(sk('m6_custom_subjects')) || '[]');
   const merged = {};
   Object.keys(DEFAULT_DISC_COLORS).forEach(k => {
     merged[k] = saved[k] || DEFAULT_DISC_COLORS[k];
@@ -3771,11 +3827,11 @@ function getDiscColor(disc) {
 function updateDiscColors() { Object.assign(DISC_COLORS, getDiscColors()); }
 
 function saveDiscColor(disciplina, borderColor) {
-  const saved = JSON.parse(localStorage.getItem('m6_disc_colors') || '{}');
+  const saved = JSON.parse(localStorage.getItem(sk('m6_disc_colors')) || '{}');
   const bg = borderColor + '22';
   const text = borderColor;
   saved[disciplina] = { bg, border: borderColor, text };
-  localStorage.setItem('m6_disc_colors', JSON.stringify(saved));
+  localStorage.setItem(sk('m6_disc_colors'), JSON.stringify(saved));
   updateDiscColors();
   renderAll();
 }
@@ -3785,22 +3841,22 @@ function addCustomSubject() {
   if (!nome || !nome.trim()) return;
   const cor = prompt('Cor em hexadecimal (ex: #e74c3c):', '#e74c3c');
   if (!cor || !cor.trim()) return;
-  const custom = JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]');
+  const custom = JSON.parse(localStorage.getItem(sk('m6_custom_subjects')) || '[]');
   if (custom.find(c => c.nome === nome.trim())) { alert('Essa materia ja existe!'); return; }
   custom.push({ nome: nome.trim(), color: { bg: cor+'22', border: cor, text: cor } });
-  localStorage.setItem('m6_custom_subjects', JSON.stringify(custom));
+  localStorage.setItem(sk('m6_custom_subjects'), JSON.stringify(custom));
   saveDiscColor(nome.trim(), cor);
   renderSubjectColors();
 }
 
 function deleteCustomSubject(nome) {
   if (!confirm('Remover a materia "' + nome + '" das cores? As cores padrao serao usadas.')) return;
-  const saved = JSON.parse(localStorage.getItem('m6_disc_colors') || '{}');
+  const saved = JSON.parse(localStorage.getItem(sk('m6_disc_colors')) || '{}');
   delete saved[nome];
-  localStorage.setItem('m6_disc_colors', JSON.stringify(saved));
-  const custom = JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]');
+  localStorage.setItem(sk('m6_disc_colors'), JSON.stringify(saved));
+  const custom = JSON.parse(localStorage.getItem(sk('m6_custom_subjects')) || '[]');
   const idx = custom.findIndex(c => c.nome === nome);
-  if (idx >= 0) { custom.splice(idx, 1); localStorage.setItem('m6_custom_subjects', JSON.stringify(custom)); }
+  if (idx >= 0) { custom.splice(idx, 1); localStorage.setItem(sk('m6_custom_subjects'), JSON.stringify(custom)); }
   updateDiscColors();
   renderAll();
 }
@@ -3811,17 +3867,17 @@ function renameSubject(oldName) {
   const finalName = newName.trim();
   const colors = getDiscColors();
   if (colors[finalName] && finalName !== oldName) { alert('Ja existe uma materia com esse nome!'); return; }
-  const saved = JSON.parse(localStorage.getItem('m6_disc_colors') || '{}');
+  const saved = JSON.parse(localStorage.getItem(sk('m6_disc_colors')) || '{}');
   if (saved[oldName]) { saved[finalName] = saved[oldName]; delete saved[oldName]; }
-  localStorage.setItem('m6_disc_colors', JSON.stringify(saved));
-  const custom = JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]');
+  localStorage.setItem(sk('m6_disc_colors'), JSON.stringify(saved));
+  const custom = JSON.parse(localStorage.getItem(sk('m6_custom_subjects')) || '[]');
   const cIdx = custom.findIndex(c => c.nome === oldName);
-  if (cIdx >= 0) { custom[cIdx].nome = finalName; localStorage.setItem('m6_custom_subjects', JSON.stringify(custom)); }
+  if (cIdx >= 0) { custom[cIdx].nome = finalName; localStorage.setItem(sk('m6_custom_subjects'), JSON.stringify(custom)); }
   const allClasses = getAllClasses();
   allClasses.forEach(a => { if (a.disciplina === oldName) a.disciplina = finalName; });
-  const grid = JSON.parse(localStorage.getItem('m6_grid') || '{}');
+  const grid = JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}');
   Object.keys(grid).forEach(k => { if (grid[k].disciplina === oldName) grid[k].disciplina = finalName; });
-  localStorage.setItem('m6_grid', JSON.stringify(grid));
+  localStorage.setItem(sk('m6_grid'), JSON.stringify(grid));
   monitorias.forEach(m => { if (m.disciplina === oldName) m.disciplina = finalName; });
   saveMonitorias();
   if (gradesData[oldName]) { gradesData[finalName] = gradesData[oldName]; delete gradesData[oldName]; saveGrades(); }
@@ -3861,9 +3917,9 @@ function updateDisciplinaDatalists() {
 }
 
 // ======================== NOTAS / GRADES ========================
-let gradesData = JSON.parse(localStorage.getItem('m6_grades') || '{}');
+let gradesData = JSON.parse(localStorage.getItem(sk('m6_grades')) || '{}');
 
-function saveGrades() { localStorage.setItem('m6_grades', JSON.stringify(gradesData)); }
+function saveGrades() { localStorage.setItem(sk('m6_grades'), JSON.stringify(gradesData)); }
 
 function getGradesFor(disciplina) {
   if (!gradesData[disciplina]) gradesData[disciplina] = { pr1: [], pr2: [], final: null };
@@ -4999,7 +5055,7 @@ function exportJSON() {
 
 function exportAllData() {
   try {
-    const config = JSON.parse(localStorage.getItem('m6_config') || '{}');
+    const config = JSON.parse(localStorage.getItem(sk('m6_config')) || '{}');
     const data = {
       version: '4.0',
       exportDate: new Date().toISOString(),
@@ -5014,12 +5070,12 @@ function exportAllData() {
       reviewedClasses: reviewedClasses,
       cancelledClasses: cancelledClasses,
       customEvents: customEvents,
-      gridFixa: JSON.parse(localStorage.getItem('m6_grid') || '{}'),
-      defaultOverrides: JSON.parse(localStorage.getItem('m6_default_overrides') || '{}'),
-      discColors: JSON.parse(localStorage.getItem('m6_disc_colors') || '{}'),
-      customSubjects: JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]'),
-      iescDatas: JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}'),
-      iescGroup: localStorage.getItem('m6_iesc_group') || '',
+      gridFixa: JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}'),
+      defaultOverrides: JSON.parse(localStorage.getItem(sk('m6_default_overrides')) || '{}'),
+      discColors: JSON.parse(localStorage.getItem(sk('m6_disc_colors')) || '{}'),
+      customSubjects: JSON.parse(localStorage.getItem(sk('m6_custom_subjects')) || '[]'),
+      iescDatas: JSON.parse(localStorage.getItem(sk('m6_iesc_datas')) || '{}'),
+      iescGroup: localStorage.getItem(sk('m6_iesc_group')) || '',
       grades: gradesData,
       srs: srsData,
       questions: questionData,
@@ -5055,19 +5111,19 @@ function importAllData(event) {
           reviewedClasses = data.reviewedClasses || {};
           cancelledClasses = data.cancelledClasses || {};
           if (data.gridFixa) {
-            localStorage.setItem('m6_grid', JSON.stringify(data.gridFixa));
+            localStorage.setItem(sk('m6_grid'), JSON.stringify(data.gridFixa));
           }
           if (data.defaultOverrides) {
-            localStorage.setItem('m6_default_overrides', JSON.stringify(data.defaultOverrides));
+            localStorage.setItem(sk('m6_default_overrides'), JSON.stringify(data.defaultOverrides));
           }
           if (data.discColors) {
-            localStorage.setItem('m6_disc_colors', JSON.stringify(data.discColors));
+            localStorage.setItem(sk('m6_disc_colors'), JSON.stringify(data.discColors));
           }
           if (data.customSubjects) {
-            localStorage.setItem('m6_custom_subjects', JSON.stringify(data.customSubjects));
+            localStorage.setItem(sk('m6_custom_subjects'), JSON.stringify(data.customSubjects));
           }
           if (data.iescDatas) {
-            localStorage.setItem('m6_iesc_datas', JSON.stringify(data.iescDatas));
+            localStorage.setItem(sk('m6_iesc_datas'), JSON.stringify(data.iescDatas));
           }
           if (data.grades) {
             gradesData = data.grades;
@@ -5093,11 +5149,11 @@ function importAllData(event) {
           updateDiscColors();
           loadDefaultOverrides();
           if (data.config) {
-            localStorage.setItem('m6_config', JSON.stringify(data.config));
+            localStorage.setItem(sk('m6_config'), JSON.stringify(data.config));
             loadConfig();
           }
           if (data.iescGroup) {
-            localStorage.setItem('m6_iesc_group', data.iescGroup);
+            localStorage.setItem(sk('m6_iesc_group'), data.iescGroup);
           }
           saveCustom(); saveMonitorias(); saveReviewed(); saveCancelled();
           renderAll();
@@ -5129,11 +5185,11 @@ function importFromText() {
         if (data.monitorias || data.m) monitorias = data.monitorias || data.m || [];
         if (data.reviewedClasses || data.r) reviewedClasses = data.reviewedClasses || data.r || {};
         if (data.cancelledClasses || data.x) cancelledClasses = data.cancelledClasses || data.x || {};
-        if (data.gridFixa) localStorage.setItem('m6_grid', JSON.stringify(data.gridFixa));
-        if (data.defaultOverrides) localStorage.setItem('m6_default_overrides', JSON.stringify(data.defaultOverrides));
-        if (data.discColors) localStorage.setItem('m6_disc_colors', JSON.stringify(data.discColors));
-        if (data.customSubjects) localStorage.setItem('m6_custom_subjects', JSON.stringify(data.customSubjects));
-        if (data.iescDatas) localStorage.setItem('m6_iesc_datas', JSON.stringify(data.iescDatas));
+        if (data.gridFixa) localStorage.setItem(sk('m6_grid'), JSON.stringify(data.gridFixa));
+        if (data.defaultOverrides) localStorage.setItem(sk('m6_default_overrides'), JSON.stringify(data.defaultOverrides));
+        if (data.discColors) localStorage.setItem(sk('m6_disc_colors'), JSON.stringify(data.discColors));
+        if (data.customSubjects) localStorage.setItem(sk('m6_custom_subjects'), JSON.stringify(data.customSubjects));
+        if (data.iescDatas) localStorage.setItem(sk('m6_iesc_datas'), JSON.stringify(data.iescDatas));
         if (data.grades) { gradesData = data.grades; saveGrades(); }
         if (data.srs) { srsData = data.srs; saveSRS(); }
         if (data.questions) { questionData = data.questions; saveQuestions(); }
@@ -5142,10 +5198,10 @@ function importFromText() {
         updateDiscColors();
         loadDefaultOverrides();
         if (data.config) {
-          localStorage.setItem('m6_config', JSON.stringify(data.config));
+          localStorage.setItem(sk('m6_config'), JSON.stringify(data.config));
           loadConfig();
         }
-        if (data.iescGroup || data.g) localStorage.setItem('m6_iesc_group', data.iescGroup || data.g || '');
+        if (data.iescGroup || data.g) localStorage.setItem(sk('m6_iesc_group'), data.iescGroup || data.g || '');
         
         saveCustom(); saveMonitorias(); saveReviewed(); saveCancelled();
         renderAll();
@@ -5179,7 +5235,7 @@ function renderAll() {
 
 // ======================== CONFIG ========================
 function loadConfig() {
-  const config = JSON.parse(localStorage.getItem('m6_config') || '{}');
+  const config = JSON.parse(localStorage.getItem(sk('m6_config')) || '{}');
   document.getElementById('configCurso').value = config.curso || 'Medicina';
   document.getElementById('configM').value = config.m || 'M6';
   document.getElementById('configPeriodo').value = config.periodo || '2026.2';
@@ -5195,7 +5251,7 @@ function saveConfig() {
     turma: document.getElementById('configTurma').value || '4003',
     campus: document.getElementById('configCampus').value || 'IDOMED Vista Carioca'
   };
-  localStorage.setItem('m6_config', JSON.stringify(config));
+  localStorage.setItem(sk('m6_config'), JSON.stringify(config));
   
   // Atualizar titulo e header
   document.title = 'Agenda ' + config.curso + ' ' + config.m + ' - Turma ' + config.turma;
@@ -5226,11 +5282,11 @@ function resetarCanceladas() {
 function resetarTudo() {
   if (confirm('APAGAR TODOS OS DADOS?\n\nIsso ira limpar:\n- Aulas personalizadas\n- Revisoes\n- Canceladas\n- Monitorias\n\nNAO sera possivel desfazer!')) {
     if (confirm('Tem CERTEZA? Todos os dados serao perdidos!')) {
-      localStorage.removeItem('m6_custom');
-      localStorage.removeItem('m6_reviewed');
-      localStorage.removeItem('m6_cancelled');
-      localStorage.removeItem('m6_monitorias');
-      localStorage.removeItem('m6_iesc_group');
+      localStorage.removeItem(sk('m6_custom'));
+      localStorage.removeItem(sk('m6_reviewed'));
+      localStorage.removeItem(sk('m6_cancelled'));
+      localStorage.removeItem(sk('m6_monitorias'));
+      localStorage.removeItem(sk('m6_iesc_group'));
       customEvents = [];
       reviewedClasses = {};
       cancelledClasses = {};
@@ -5261,9 +5317,9 @@ function initAgenda() {
   document.body.appendChild(shortcuts);
 
   // Badge de novidade: ultima visita
-  const lastVisit = localStorage.getItem('m6_last_visit') || '';
+  const lastVisit = localStorage.getItem(sk('m6_last_visit')) || '';
   const today = formatDate(new Date());
-  localStorage.setItem('m6_last_visit', today);
+  localStorage.setItem(sk('m6_last_visit'), today);
   if (lastVisit && lastVisit !== today) {
     // Verificar se ha aulas novas desde a ultima visita
     const newClasses = getAllClasses().filter(a => a.data > lastVisit && a.data <= today);
@@ -5273,7 +5329,7 @@ function initAgenda() {
   }
 
   // Load notifications state
-  notifEnabled = localStorage.getItem('m6_notif_enabled') === 'true';
+  notifEnabled = localStorage.getItem(sk('m6_notif_enabled')) === 'true';
   updateNotifButton();
   if (notifEnabled) startNotifChecker();
 
@@ -5302,7 +5358,7 @@ function closeAllModals() {
 
 // ======================== SHARE DATA ========================
 function getShareData() {
-  const config = JSON.parse(localStorage.getItem('m6_config') || '{}');
+  const config = JSON.parse(localStorage.getItem(sk('m6_config')) || '{}');
   return JSON.stringify({
     v: '4.0',
     exportDate: new Date().toISOString(),
@@ -5312,8 +5368,8 @@ function getShareData() {
     r: reviewedClasses,
     x: cancelledClasses,
     e: customEvents,
-    grid: JSON.parse(localStorage.getItem('m6_grid') || '{}'),
-    g: localStorage.getItem('m6_iesc_group') || '',
+    grid: JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}'),
+    g: localStorage.getItem(sk('m6_iesc_group')) || '',
     grades: gradesData,
     srs: srsData,
     questions: questionData,
@@ -5370,7 +5426,7 @@ function shareViaWhatsApp() {
 }
 
 function copyToClipboard() {
-  const config = JSON.parse(localStorage.getItem('m6_config') || '{}');
+  const config = JSON.parse(localStorage.getItem(sk('m6_config')) || '{}');
   const data = JSON.stringify({
     v: '4.0',
     exportDate: new Date().toISOString(),
@@ -5380,8 +5436,8 @@ function copyToClipboard() {
     reviewedClasses: reviewedClasses,
     cancelledClasses: cancelledClasses,
     customEvents: customEvents,
-    gridFixa: JSON.parse(localStorage.getItem('m6_grid') || '{}'),
-    iescGroup: localStorage.getItem('m6_iesc_group') || '',
+    gridFixa: JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}'),
+    iescGroup: localStorage.getItem(sk('m6_iesc_group')) || '',
     grades: gradesData,
     srs: srsData,
     questions: questionData,
@@ -5422,16 +5478,16 @@ function pasteFromClipboard() {
       else if (data.r !== undefined) reviewedClasses = data.r;
       if (data.cancelledClasses !== undefined) cancelledClasses = data.cancelledClasses;
       else if (data.x !== undefined) cancelledClasses = data.x;
-      if (data.gridFixa) localStorage.setItem('m6_grid', JSON.stringify(data.gridFixa));
-      if (data.defaultOverrides) localStorage.setItem('m6_default_overrides', JSON.stringify(data.defaultOverrides));
-      if (data.discColors) localStorage.setItem('m6_disc_colors', JSON.stringify(data.discColors));
-      if (data.customSubjects) localStorage.setItem('m6_custom_subjects', JSON.stringify(data.customSubjects));
-      if (data.iescDatas) localStorage.setItem('m6_iesc_datas', JSON.stringify(data.iescDatas));
+      if (data.gridFixa) localStorage.setItem(sk('m6_grid'), JSON.stringify(data.gridFixa));
+      if (data.defaultOverrides) localStorage.setItem(sk('m6_default_overrides'), JSON.stringify(data.defaultOverrides));
+      if (data.discColors) localStorage.setItem(sk('m6_disc_colors'), JSON.stringify(data.discColors));
+      if (data.customSubjects) localStorage.setItem(sk('m6_custom_subjects'), JSON.stringify(data.customSubjects));
+      if (data.iescDatas) localStorage.setItem(sk('m6_iesc_datas'), JSON.stringify(data.iescDatas));
       updateDiscColors();
       loadDefaultOverrides();
-      if (data.config) { localStorage.setItem('m6_config', JSON.stringify(data.config)); loadConfig(); }
-      if (data.iescGroup !== undefined) localStorage.setItem('m6_iesc_group', data.iescGroup);
-      else if (data.g !== undefined) localStorage.setItem('m6_iesc_group', data.g);
+      if (data.config) { localStorage.setItem(sk('m6_config'), JSON.stringify(data.config)); loadConfig(); }
+      if (data.iescGroup !== undefined) localStorage.setItem(sk('m6_iesc_group'), data.iescGroup);
+      else if (data.g !== undefined) localStorage.setItem(sk('m6_iesc_group'), data.g);
       
       saveCustom(); saveReviewed(); saveCancelled(); saveMonitorias();
       renderAll(); loadIESCGroup();
@@ -5444,17 +5500,19 @@ function pasteFromClipboard() {
 
 // ======================== SINCRONIZACAO NUVEM (GITHUB GIST) ========================
 const CLOUD_USERNAME = 'thatidantasl';
+function cloudFilename() { return 'agenda_m6_' + activeProfile + '.json'; }
+function cloudDescription() { return 'Agenda M6 - ' + activeProfile; }
 
 async function saveToCloud(silent) {
-  let token = localStorage.getItem('m6_gist_token');
-  const gistId = localStorage.getItem('m6_gist_id');
+  let token = localStorage.getItem(sk('m6_gist_token'));
+  const gistId = localStorage.getItem(sk('m6_gist_id'));
   
   if (!token) {
     if (silent) return;
     token = prompt('Para salvar na nuvem, cole seu GitHub Personal Access Token (com permissao "gist"):\n\nCrie em: https://github.com/settings/tokens');
     if (!token) return;
     token = token.trim();
-    localStorage.setItem('m6_gist_token', token);
+    localStorage.setItem(sk('m6_gist_token'), token);
   }
   
   const exportData = {
@@ -5465,12 +5523,12 @@ async function saveToCloud(silent) {
     reviewedClasses: reviewedClasses,
     cancelledClasses: cancelledClasses,
     customEvents: customEvents,
-    gridFixa: JSON.parse(localStorage.getItem('m6_grid') || '{}'),
-    defaultOverrides: JSON.parse(localStorage.getItem('m6_default_overrides') || '{}'),
-    discColors: JSON.parse(localStorage.getItem('m6_disc_colors') || '{}'),
-    customSubjects: JSON.parse(localStorage.getItem('m6_custom_subjects') || '[]'),
-    iescDatas: JSON.parse(localStorage.getItem('m6_iesc_datas') || '{}'),
-    iescGroup: localStorage.getItem('m6_iesc_group') || '',
+    gridFixa: JSON.parse(localStorage.getItem(sk('m6_grid')) || '{}'),
+    defaultOverrides: JSON.parse(localStorage.getItem(sk('m6_default_overrides')) || '{}'),
+    discColors: JSON.parse(localStorage.getItem(sk('m6_disc_colors')) || '{}'),
+    customSubjects: JSON.parse(localStorage.getItem(sk('m6_custom_subjects')) || '[]'),
+    iescDatas: JSON.parse(localStorage.getItem(sk('m6_iesc_datas')) || '{}'),
+    iescGroup: localStorage.getItem(sk('m6_iesc_group')) || '',
     grades: gradesData,
     srs: srsData,
     questions: questionData,
@@ -5487,10 +5545,10 @@ async function saveToCloud(silent) {
         'Accept': 'application/vnd.github.v3+json'
       },
       body: JSON.stringify({
-        description: 'Agenda M6 - Completo',
+        description: cloudDescription(),
         public: true,
         files: {
-          'agenda_m6.json': {
+          [cloudFilename()]: {
             content: JSON.stringify(exportData, null, 2)
           }
         }
@@ -5503,14 +5561,14 @@ async function saveToCloud(silent) {
     }
     
     const resData = await response.json();
-    localStorage.setItem('m6_gist_id', resData.id);
-    localStorage.setItem('m6_gist_raw_url', resData.files['agenda_m6.json'].raw_url);
+    localStorage.setItem(sk('m6_gist_id'), resData.id);
+    localStorage.setItem(sk('m6_gist_raw_url'), resData.files[cloudFilename()].raw_url);
     
     if (!silent) alert('Salvo na nuvem! Todos os dispositivos carregarao automaticamente.');
   } catch(e) {
     if (gistId && (e.message.includes('Not Found') || e.message.includes('cannot be updated'))) {
-      localStorage.removeItem('m6_gist_id');
-      localStorage.removeItem('m6_gist_raw_url');
+      localStorage.removeItem(sk('m6_gist_id'));
+      localStorage.removeItem(sk('m6_gist_raw_url'));
       alert('Gist antigo invalido. Tente salvar novamente (um novo sera criado).');
       return;
     }
@@ -5525,13 +5583,13 @@ async function loadFromCloud(silent) {
     if (gistsRes.ok) {
       const gists = await gistsRes.json();
       const agendaGist = gists.find(g => 
-        g.description && (g.description.includes('Agenda M6 - Completo') || g.description.includes('Agenda M6 - Dados')) && 
-        g.files && g.files['agenda_m6.json']
+        g.description && (g.description.includes('Agenda M6 - ' + activeProfile) || g.description.includes('Agenda M6 - Completo')) && 
+        g.files && g.files[cloudFilename()]
       );
       if (agendaGist) {
-        rawUrl = agendaGist.files['agenda_m6.json'].raw_url;
-        localStorage.setItem('m6_gist_id', agendaGist.id);
-        localStorage.setItem('m6_gist_raw_url', rawUrl);
+        rawUrl = agendaGist.files[cloudFilename()].raw_url;
+        localStorage.setItem(sk('m6_gist_id'), agendaGist.id);
+        localStorage.setItem(sk('m6_gist_raw_url'), rawUrl);
       }
     }
   } catch(e) {}
@@ -5553,12 +5611,12 @@ async function loadFromCloud(silent) {
     if (data.monitorias) monitorias = data.monitorias;
     if (data.reviewedClasses) reviewedClasses = data.reviewedClasses;
     if (data.cancelledClasses) cancelledClasses = data.cancelledClasses;
-    if (data.gridFixa) localStorage.setItem('m6_grid', JSON.stringify(data.gridFixa));
-    if (data.defaultOverrides) localStorage.setItem('m6_default_overrides', JSON.stringify(data.defaultOverrides));
-    if (data.discColors) localStorage.setItem('m6_disc_colors', JSON.stringify(data.discColors));
-    if (data.customSubjects) localStorage.setItem('m6_custom_subjects', JSON.stringify(data.customSubjects));
-    if (data.iescDatas) localStorage.setItem('m6_iesc_datas', JSON.stringify(data.iescDatas));
-    if (data.iescGroup) localStorage.setItem('m6_iesc_group', data.iescGroup);
+    if (data.gridFixa) localStorage.setItem(sk('m6_grid'), JSON.stringify(data.gridFixa));
+    if (data.defaultOverrides) localStorage.setItem(sk('m6_default_overrides'), JSON.stringify(data.defaultOverrides));
+    if (data.discColors) localStorage.setItem(sk('m6_disc_colors'), JSON.stringify(data.discColors));
+    if (data.customSubjects) localStorage.setItem(sk('m6_custom_subjects'), JSON.stringify(data.customSubjects));
+    if (data.iescDatas) localStorage.setItem(sk('m6_iesc_datas'), JSON.stringify(data.iescDatas));
+    if (data.iescGroup) localStorage.setItem(sk('m6_iesc_group'), data.iescGroup);
     if (data.grades) { gradesData = data.grades; saveGrades(); }
     if (data.srs) { srsData = data.srs; saveSRS(); }
     if (data.questions) { questionData = data.questions; saveQuestions(); }
@@ -5578,7 +5636,7 @@ async function loadFromCloud(silent) {
 // Auto-save com debounce
 let autoSaveTimer = null;
 function autoSaveToCloud() {
-  if (!localStorage.getItem('m6_gist_token')) return;
+  if (!localStorage.getItem(sk('m6_gist_token'))) return;
   clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(() => saveToCloud(true), 3000);
 }
@@ -5597,8 +5655,13 @@ saveQuestions = function() { _origSaveQuestions(); autoSaveToCloud(); };
 const _origSaveNoReview = saveNoReview;
 saveNoReview = function() { _origSaveNoReview(); autoSaveToCloud(); };
 
-// Inicializa a agenda diretamente (sem login)
-initAgenda();
+// Inicializacao: entra direto se houver perfil ativo; senao mostra o login
+if (activeProfile) {
+  document.getElementById('loginOverlay').classList.add('hidden');
+  initAgenda();
+} else {
+  renderLogin();
+}
 </script>
 </body>
 </html>

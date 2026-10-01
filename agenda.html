@@ -8,11 +8,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Agenda M6">
 <meta name="description" content="Agenda da Medicina M6 - Turma 4003">
-<meta property="og:title" content="Agenda Medicina - Tati">
+<meta property="og:title" content="Agenda M6 - Pessoal">
 <meta property="og:description" content="Agenda da Medicina M6 - Turma 4003">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%236366f1' width='100' height='100' rx='20'/><text x='50' y='65' font-size='40' text-anchor='middle' fill='white'>M6</text></svg>">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%236366f1' width='100' height='100' rx='20'/><text x='50' y='65' font-size='40' text-anchor='middle' fill='white'>M6</text></svg>">
-<title>Agenda Medicina - Tati</title>
+<title>Agenda M6 - Pessoal</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -1881,6 +1881,7 @@ body {
     <button type="button" class="login-btn" onclick="checkLogin()">Entrar</button>
     <div class="login-error" id="loginError"></div>
     <div style="font-size:0.65rem;color:rgba(255,255,255,0.45);margin-top:10px">Primeiro acesso a um perfil? A senha digitada vira a senha dele.</div>
+    <button type="button" class="login-hint-btn" onclick="forgotPassword()">Esqueci a senha</button>
   </div>
 </div>
 
@@ -2515,6 +2516,19 @@ function renderLogin() {
 function onProfileSelect() {
   const sel = document.getElementById('loginProfile');
   document.getElementById('loginNewProfile').style.display = (sel.value === '__new__') ? 'block' : 'none';
+}
+
+function forgotPassword() {
+  const sel = document.getElementById('loginProfile');
+  let profile = sel.value;
+  if (profile === '__new__') { profile = document.getElementById('loginNewProfile').value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ''); }
+  if (!profile) { document.getElementById('loginError').textContent = 'Escolha um perfil primeiro'; return; }
+  if (confirm('Remover a senha do perfil "' + profile + '"?\n\nNa proxima entrada, voce criara uma nova senha. Os dados NAO serao apagados.')) {
+    localStorage.removeItem(pk(profile, 'm6_pwd_hash'));
+    document.getElementById('loginError').textContent = 'Senha removida! Digite uma nova senha para entrar.';
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginPassword').focus();
+  }
 }
 
 async function checkLogin() {
@@ -5254,7 +5268,7 @@ function saveConfig() {
   localStorage.setItem(sk('m6_config'), JSON.stringify(config));
   
   // Atualizar titulo e header
-  document.title = 'Agenda ' + config.curso + ' ' + config.m + ' - Turma ' + config.turma;
+  document.title = 'Agenda M6 - Pessoal';
   document.querySelector('.header h1').textContent = config.curso + ' ' + config.m;
   document.querySelector('.header .subtitle').textContent = 'Turma ' + config.turma + ' | Estacio ' + config.campus + ' | ' + config.periodo;
   

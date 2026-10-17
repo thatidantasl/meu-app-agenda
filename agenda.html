@@ -1919,7 +1919,7 @@ body {
   <div class="tab" data-tab="avaliacoes">&#128221; Avaliacoes</div>
   <div class="tab" data-tab="grid">&#128196; Grade</div>
   <div class="tab" data-tab="calendar">&#128198; Calendario</div>
-  <div class="tab" data-tab="review">&#9989; Revisao</div>
+  <div class="tab" data-tab="review">&#9989; Revisao <span class="badge-count" id="reviewTabBadge" style="display:none"></span></div>
   <div class="tab" data-tab="monitorias">&#128218; Monitorias</div>
   <div class="tab" data-tab="manage">&#128295; Gerenciar</div>
   <div class="tab" data-tab="grades">&#127942; Notas</div>
@@ -2776,7 +2776,23 @@ function startNotifChecker() {
   stopNotifChecker();
   checkUpcomingClasses();
   checkUpcomingEvaluations();
-  notifInterval = setInterval(() => { checkUpcomingClasses(); checkUpcomingEvaluations(); }, 60000);
+  checkDailyReviewNotification();
+  notifInterval = setInterval(() => { checkUpcomingClasses(); checkUpcomingEvaluations(); checkDailyReviewNotification(); }, 60000);
+}
+
+function checkDailyReviewNotification() {
+  if (!notifEnabled || Notification.permission !== 'granted') return;
+  const today = formatDate(new Date());
+  const flagKey = 'm6_notif_review_' + today;
+  if (localStorage.getItem(sk(flagKey))) return;
+  const n = countDueReviews();
+  if (n > 0) {
+    localStorage.setItem(sk(flagKey), '1');
+    new Notification('Revisoes de hoje', {
+      body: 'Voce tem ' + n + (n === 1 ? ' revisao' : ' revisoes') + ' para fazer hoje.',
+      icon: '📚'
+    });
+  }
 }
 
 function stopNotifChecker() {
@@ -3626,6 +3642,20 @@ function ensureSrs(a) {
   return srsData[key];
 }
 
+function countDueReviews() {
+  const all = getAllClasses();
+  const today = formatDate(new Date());
+  const nextPR = getNextPRDate();
+  if (nextPR && (parseDate(nextPR) - parseDate(today)) / 86400000 <= 3) return 0;
+  let n = 0;
+  all.forEach(a => {
+    if (!(a.data >= REVIEW_START_DATE && a.data < today && REVIEWABLE_TYPES.includes(a.tipo) && !cancelledClasses[a.data + '_' + a.disciplina] && !noReviewClasses[a.data + '_' + a.disciplina])) return;
+    const e = srsData[a.data + '_' + a.disciplina] || ensureSrs(a);
+    if (e && parseDate(e.nextReview) <= parseDate(today)) n++;
+  });
+  return n;
+}
+
 function renderReview() {
   const all = getAllClasses();
   const today = formatDate(new Date());
@@ -3672,28 +3702,43 @@ function renderReview() {
     if (until <= 0) due.push({ a, e });
     else upcoming.push({ a, e });
   });
-  due.sort((x,y) => x.e.nextReview.localeCompare(y.e.nextReview));
+  due.sort((x, y) => {
+    const px = getTemaPct(x.e.tema), py = getTemaPct(y.e.tema);
+    if (px === null && py === null) return x.e.nextReview.localeCompare(y.e.nextReview);
+    if (px === null) return 1;
+    if (py === null) return -1;
+    return px - py;
+  });
   upcoming.sort((x,y) => x.e.nextReview.localeCompare(y.e.nextReview));
 
   const renderDueItem = ({a, e}) => {
     const tc = getTipoClass(a.tipo);
     const pctTema = getTemaPct(e.tema);
     let pctBadge = '';
+    let borderColor = 'var(--primary)';
     if (pctTema !== null) {
-      if (pctTema < 30) pctBadge = '<span class="badge" style="background:#fee2e2;color:#b91c1c;font-weight:700">&#128293; ' + pctTema + '%</span>';
-      else if (pctTema < 70) pctBadge = '<span class="badge" style="background:#fef3c7;color:#b45309;font-weight:700">&#9888;&#65039; ' + pctTema + '%</span>';
-      else pctBadge = '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700">&#10003; ' + pctTema + '%</span>';
+      if (pctTema < 30) { pctBadge = '<span class="badge" style="background:#fee2e2;color:#b91c1c;font-weight:700">&#128293; ' + pctTema + '%</span>'; borderColor = 'var(--danger)'; }
+      else if (pctTema < 70) { pctBadge = '<span class="badge" style="background:#fef3c7;color:#b45309;font-weight:700">&#9888;&#65039; ' + pctTema + '%</span>'; borderColor = 'var(--accent)'; }
+      else { pctBadge = '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700">&#10003; ' + pctTema + '%</span>'; borderColor = 'var(--success)'; }
     }
     const stageLabel = e.reviewCount === 0 ? '1a revisao' : (e.reviewCount + 1) + 'a revisao';
-    return `<div class="review-item taught" style="border-left:4px solid var(--primary)">
+    const overdueDays = Math.round((parseDate(today) - parseDate(e.nextReview)) / 86400000);
+    let overdueLabel = '';
+    if (overdueDays > 0) {
+      overdueLabel = ' <span style="color:var(--danger);font-weight:700">&#128337; atrasada ha ' + overdueDays + (overdueDays === 1 ? ' dia' : ' dias') + '</span>';
+    } else {
+      overdueLabel = ' <span style="color:var(--accent);font-weight:600">vence hoje</span>';
+    }
+    return `<div class="review-item taught" style="border-left:4px solid ${borderColor}">
       <div class="review-info">
         <div class="subject">${a.disciplina} <span class="badge ${tc}">${getTipoLabel(a.tipo)}</span> ${pctBadge}</div>
         <div class="topic">${e.tema || a.tema}</div>
-        <div class="date">${stageLabel}${e.lastReviewed ? ' | ultima: ' + formatDateBR(parseDate(e.lastReviewed)).split(',')[0] : ''}</div>
+        <div class="date">${stageLabel}${overdueLabel}${e.lastReviewed ? ' | ultima: ' + formatDateBR(parseDate(e.lastReviewed)).split(',')[0] : ''}</div>
       </div>
       <div class="review-actions">
         <button class="edit-btn strike" onclick="openQuestionsModal('${a.data}','${a.disciplina}')" title="Lancar questoes (respondidas/acertadas)">&#128221; Questoes</button>
         <button class="edit-btn edit" onclick="markReviewDone('${a.data}','${a.disciplina}')" title="Marcar como revisada">&#10003; Revisada</button>
+        <button class="edit-btn strike" onclick="postponeReview('${a.data}','${a.disciplina}')" title="Adiar esta revisao">&#9200; Adiar</button>
         <button class="edit-btn delete" onclick="toggleNoReview('${a.data}','${a.disciplina}')" title="Nao revisar esta aula">&#128581; Ignorar</button>
       </div>
     </div>`;
@@ -3701,11 +3746,15 @@ function renderReview() {
 
   const renderUpcomingItem = ({a, e}) => {
     const tc = getTipoClass(a.tipo);
+    const d = parseDate(e.nextReview);
+    const until = Math.round((d - parseDate(today)) / 86400000);
+    const when = until <= 0 ? 'hoje' : (until === 1 ? 'amanha' : 'em ' + until + ' dias');
+    const dateStr = formatDateBR(d).split(',')[0] + ', ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
     return `<div class="review-item pending">
       <div class="review-info">
         <div class="subject">${a.disciplina} <span class="badge ${tc}">${getTipoLabel(a.tipo)}</span></div>
         <div class="topic">${e.tema || a.tema}</div>
-        <div class="date">Revisar em: ${formatDateBR(parseDate(e.nextReview)).split(',')[0]}</div>
+        <div class="date">Revisar em: <strong>${dateStr}</strong> (${when})</div>
       </div>
       <div class="review-actions">
         <button class="edit-btn delete" onclick="toggleNoReview('${a.data}','${a.disciplina}')" title="Nao revisar esta aula">&#128581; Ignorar</button>
@@ -3734,6 +3783,13 @@ function renderReview() {
   const ignoredSection = document.getElementById('srsIgnoredSection');
   if (ignoredSection) ignoredSection.style.display = ignored.length ? '' : 'none';
   document.getElementById('srsIgnoredList').innerHTML = ignored.length ? ignored.map(renderIgnoredItem).join('') : '';
+
+  const badge = document.getElementById('reviewTabBadge');
+  if (badge) {
+    const n = focusMode ? 0 : due.length;
+    badge.textContent = n;
+    badge.style.display = n > 0 ? '' : 'none';
+  }
 }
 
 function toggleNoReview(data, disciplina) {
@@ -3772,6 +3828,35 @@ function markReviewDone(data, disciplina) {
   saveSRS();
   renderReview();
   updateHeader();
+  const nd = parseDate(e.nextReview);
+  showToast('Revisada! Proxima: ' + formatDateBR(nd).split(',')[0] + ', ' + String(nd.getDate()).padStart(2, '0') + '/' + String(nd.getMonth() + 1).padStart(2, '0'));
+}
+
+function postponeReview(data, disciplina) {
+  const key = data + '_' + disciplina;
+  const e = srsData[key];
+  if (!e) return;
+  const days = parseInt(prompt('Adiar esta revisao por quantos dias?', '2'), 10);
+  if (isNaN(days) || days < 1) return;
+  e.nextReview = addDaysStr(formatDate(new Date()), days);
+  saveSRS();
+  renderReview();
+  updateHeader();
+  showToast('Revisao adiada por ' + days + (days === 1 ? ' dia' : ' dias') + '.');
+}
+
+function showToast(msg) {
+  let t = document.getElementById('reviewToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'reviewToast';
+    t.style.cssText = 'position:fixed;bottom:88px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,var(--primary),#8b5cf6);color:white;padding:12px 20px;border-radius:24px;font-size:0.8rem;z-index:400;box-shadow:0 8px 24px rgba(0,0,0,0.3);transition:opacity 0.3s;max-width:90%;text-align:center';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2800);
 }
 
 let questionTarget = null;

@@ -2008,9 +2008,11 @@ body {
       </div>
     </div>
     <div id="reviewFocusAlert"></div>
+    <div id="reviewGoalCard"></div>
     <div style="font-size:0.7rem;color:var(--text-muted);margin:8px 0 12px;">Somente aulas teoricas a partir de 28/09/2026. Use &#128581; Ignorar para tirar aulas que nao precisam de revisao.</div>
     <div class="section-title">
       <div class="icon green">&#128214;</div> Revisoes de hoje
+      <button class="btn btn-sm btn-secondary" id="simuladoBtn" onclick="toggleSimulado()" style="margin-left:auto" title="Focar apenas nos assuntos prioritarios (&lt;70%)">&#127919; Simulado</button>
     </div>
     <div id="srsDueList"></div>
     <div style="margin-top: 20px;">
@@ -2187,6 +2189,17 @@ body {
       <p style="font-size:0.7rem;color:var(--text-muted);margin-top:8px;text-align:center">A senha e individual para cada perfil.</p>
       <button class="config-btn config-btn-secondary" style="width:100%;margin-top:6px;font-size:0.7rem" onclick="resetCloudToken()">&#128274; Trocar token da nuvem</button>
       <button class="config-btn config-btn-secondary" style="margin-top:8px" onclick="sair()">Sair (bloquear agenda novamente)</button>
+    </div>
+
+    <div class="config-card">
+      <div class="config-card-title">
+        <span class="icon">&#127919;</span> Meta diaria de questoes
+      </div>
+      <div style="display:flex;gap:8px">
+        <input type="number" id="configGoalQuestions" class="config-input" placeholder="Ex: 40" min="0" style="margin-bottom:0">
+        <button class="config-btn config-btn-primary" style="width:auto;padding:10px 18px" onclick="saveQuestionGoal()">Salvar</button>
+      </div>
+      <p style="font-size:0.7rem;color:var(--text-muted);margin-top:8px;text-align:center">Quantas questoes por dia voce quer responder?</p>
     </div>
 
     <div class="config-card">
@@ -2389,10 +2402,37 @@ body {
       <label>Acertos (agora)</label>
       <input type="number" id="qCorrect" min="0" step="1" placeholder="0">
     </div>
-    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:10px">As novas respostas sao somadas ao total do assunto. &lt;70% = mais revisoes | &lt;30% = reforco emergencial (diario).</div>
+    <div class="form-group">
+      <label>Confianca (1 a 5)</label>
+      <select id="qConf">
+        <option value="3">3 - Neutro</option>
+        <option value="5">5 - Muito seguro</option>
+        <option value="4">4 - Seguro</option>
+        <option value="2">2 - Inseguro</option>
+        <option value="1">1 - Muito inseguro</option>
+      </select>
+    </div>
+    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:10px">As novas respostas sao somadas ao total do assunto. &lt;70% = mais revisoes | &lt;50% = reforco emergencial (diario).</div>
     <div class="modal-btns">
       <button class="btn btn-secondary" onclick="closeQuestionsModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="submitQuestions()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REVISAO RAPIDA -->
+<div class="modal-overlay" id="quickReviewModal">
+  <div class="modal">
+    <h3>&#9889; Revisao rapida</h3>
+    <div id="qrInfo" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:10px"></div>
+    <label style="font-size:0.7rem;font-weight:600;color:var(--text-secondary)">Como foi? (% de acerto)</label>
+    <div id="qrPctButtons" style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:10px 0"></div>
+    <input type="range" id="qrSlider" min="0" max="100" step="5" value="70" oninput="document.getElementById('qrSliderVal').textContent = this.value + '%'" style="width:100%">
+    <div style="text-align:center;font-size:1.1rem;font-weight:800;margin:2px 0 10px" id="qrSliderVal">70%</div>
+    <div class="modal-btns">
+      <button class="btn btn-secondary" onclick="closeQuickReview()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="submitQuickReview(true)">So avancar</button>
+      <button class="btn btn-primary" onclick="submitQuickReview()">Salvar</button>
     </div>
   </div>
 </div>
@@ -3048,7 +3088,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.tab === 'dashboard') { renderDashboard(); }
     if (tab.dataset.tab === 'analytics') { renderAnalytics(); }
     if (tab.dataset.tab === 'avaliacoes') { renderAllEvaluations(); }
-    if (tab.dataset.tab === 'config') { renderSubjectColors(); renderIESCDates(); }
+    if (tab.dataset.tab === 'config') { renderSubjectColors(); renderIESCDates(); loadQuestionGoal(); }
   });
 });
 
@@ -3656,6 +3696,12 @@ function countDueReviews() {
   return n;
 }
 
+let simuladoMode = false;
+function toggleSimulado() {
+  simuladoMode = !simuladoMode;
+  renderReview();
+}
+
 function renderReview() {
   const all = getAllClasses();
   const today = formatDate(new Date());
@@ -3693,7 +3739,20 @@ function renderReview() {
       : '';
   }
 
-  const due = [];
+  const goalCard = document.getElementById('reviewGoalCard');
+  if (goalCard) {
+    const goal = parseInt(localStorage.getItem(sk('m6_goal_questions')), 10) || 0;
+    if (goal > 0) {
+      let todayQ = 0;
+      Object.values(questionData).forEach(q => (q.history || []).forEach(h => { if (h.d === today) todayQ += h.answered; }));
+      const gPct = Math.min(100, Math.round(todayQ / goal * 100));
+      goalCard.innerHTML = '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:6px"><span style="font-weight:700">&#127919; Meta do dia</span><span>' + todayQ + '/' + goal + ' questoes (' + gPct + '%)</span></div><div style="height:8px;background:var(--bg);border-radius:6px;overflow:hidden"><div style="height:100%;width:' + gPct + '%;background:' + (gPct >= 100 ? 'var(--success)' : 'var(--primary)') + ';border-radius:6px"></div></div></div>';
+    } else {
+      goalCard.innerHTML = '';
+    }
+  }
+
+  let due = [];
   const upcoming = [];
   taught.forEach(a => {
     const e = srsData[a.data+'_'+a.disciplina];
@@ -3702,6 +3761,9 @@ function renderReview() {
     if (until <= 0) due.push({ a, e });
     else upcoming.push({ a, e });
   });
+  if (simuladoMode) {
+    due = due.filter(x => { const p = getTemaPct(x.e.tema); return p === null || p < 70; });
+  }
   due.sort((x, y) => {
     const px = getTemaPct(x.e.tema), py = getTemaPct(y.e.tema);
     if (px === null && py === null) return x.e.nextReview.localeCompare(y.e.nextReview);
@@ -3717,7 +3779,7 @@ function renderReview() {
     let pctBadge = '';
     let borderColor = 'var(--primary)';
     if (pctTema !== null) {
-      if (pctTema < 30) { pctBadge = '<span class="badge" style="background:#fee2e2;color:#b91c1c;font-weight:700">&#128293; ' + pctTema + '%</span>'; borderColor = 'var(--danger)'; }
+      if (pctTema < 50) { pctBadge = '<span class="badge" style="background:#fee2e2;color:#b91c1c;font-weight:700">&#128293; ' + pctTema + '%</span>'; borderColor = 'var(--danger)'; }
       else if (pctTema < 70) { pctBadge = '<span class="badge" style="background:#fef3c7;color:#b45309;font-weight:700">&#9888;&#65039; ' + pctTema + '%</span>'; borderColor = 'var(--accent)'; }
       else { pctBadge = '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700">&#10003; ' + pctTema + '%</span>'; borderColor = 'var(--success)'; }
     }
@@ -3737,7 +3799,7 @@ function renderReview() {
       </div>
       <div class="review-actions">
         <button class="edit-btn strike" onclick="openQuestionsModal('${a.data}','${a.disciplina}')" title="Lancar questoes (respondidas/acertadas)">&#128221; Questoes</button>
-        <button class="edit-btn edit" onclick="markReviewDone('${a.data}','${a.disciplina}')" title="Marcar como revisada">&#10003; Revisada</button>
+        <button class="edit-btn edit" onclick="openQuickReview('${a.data}','${a.disciplina}')" title="Revisao rapida (com % de acerto)">&#9889; Revisar</button>
         <button class="edit-btn strike" onclick="postponeReview('${a.data}','${a.disciplina}')" title="Adiar esta revisao">&#9200; Adiar</button>
         <button class="edit-btn delete" onclick="toggleNoReview('${a.data}','${a.disciplina}')" title="Nao revisar esta aula">&#128581; Ignorar</button>
       </div>
@@ -3778,11 +3840,17 @@ function renderReview() {
 
   document.getElementById('srsDueList').innerHTML = focusMode
     ? '<div class="empty-state"><p>Revisoes pausadas — foco na prova.</p></div>'
-    : (due.length ? due.map(renderDueItem).join('') : '<div class="empty-state"><p>Nenhuma revisao para hoje. &#127881;</p></div>');
+    : (due.length ? due.map(renderDueItem).join('') : '<div class="empty-state"><p>' + (simuladoMode ? 'Nenhum assunto prioritario para hoje. &#127881;' : 'Nenhuma revisao para hoje. &#127881;') + '</p></div>');
   document.getElementById('srsUpcomingList').innerHTML = upcoming.length ? upcoming.map(renderUpcomingItem).join('') : '<div class="empty-state"><p>Nenhuma revisao futura agendada.</p></div>';
   const ignoredSection = document.getElementById('srsIgnoredSection');
   if (ignoredSection) ignoredSection.style.display = ignored.length ? '' : 'none';
   document.getElementById('srsIgnoredList').innerHTML = ignored.length ? ignored.map(renderIgnoredItem).join('') : '';
+
+  const simBtn = document.getElementById('simuladoBtn');
+  if (simBtn) {
+    simBtn.style.background = simuladoMode ? 'var(--accent)' : '';
+    simBtn.style.color = simuladoMode ? 'white' : '';
+  }
 
   const badge = document.getElementById('reviewTabBadge');
   if (badge) {
@@ -3817,7 +3885,7 @@ function markReviewDone(data, disciplina) {
   e.reviewCount++;
   e.lastReviewed = formatDate(new Date());
   if (pct !== null && pct < 70) {
-    e.stage = 0; // <70% volta para 1 dia (abaixo de 30% = emergencial/diario)
+    e.stage = 0; // <70% volta para 1 dia (abaixo de 50% = emergencial/diario)
   } else {
     e.stage++;
   }
@@ -3883,11 +3951,63 @@ function submitQuestions() {
   q.total += answered;
   q.correct += correct;
   q.history = q.history || [];
-  q.history.push({ d: formatDate(new Date()), answered: answered, correct: correct });
+  q.history.push({ d: formatDate(new Date()), answered: answered, correct: correct, conf: parseInt(document.getElementById('qConf').value) || 3 });
   questionData[questionTarget] = q;
   saveQuestions();
   closeQuestionsModal();
   renderReview();
+}
+
+// ======================== REVISAO RAPIDA ========================
+let quickReviewKey = null;
+function openQuickReview(data, disciplina) {
+  quickReviewKey = data + '_' + disciplina;
+  const e = srsData[quickReviewKey];
+  if (!e) return;
+  document.getElementById('qrInfo').innerHTML = '<strong>' + e.disciplina + '</strong><br>' + (e.tema || '');
+  const vals = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
+  document.getElementById('qrPctButtons').innerHTML = vals.map(p => '<button type="button" style="padding:6px 4px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:0.7rem;background:var(--bg);color:var(--text)" onclick="setQuickPct(' + p + ')">' + p + '%</button>').join('');
+  document.getElementById('qrSlider').value = 70;
+  document.getElementById('qrSliderVal').textContent = '70%';
+  document.getElementById('quickReviewModal').classList.add('active');
+}
+function setQuickPct(p) {
+  document.getElementById('qrSlider').value = p;
+  document.getElementById('qrSliderVal').textContent = p + '%';
+}
+function closeQuickReview() { document.getElementById('quickReviewModal').classList.remove('active'); }
+
+function submitQuickReview(skipLog) {
+  const key = quickReviewKey;
+  const e = srsData[key];
+  if (!e) return;
+  const pct = parseInt(document.getElementById('qrSlider').value, 10);
+  const today = formatDate(new Date());
+  const tema = e.tema || '';
+  if (!skipLog && tema) {
+    const q = questionData[tema] || { total: 0, correct: 0 };
+    const correct = Math.round(pct / 10);
+    q.total += 10;
+    q.correct += correct;
+    q.history = q.history || [];
+    q.history.push({ d: today, answered: 10, correct: correct, conf: null });
+    questionData[tema] = q;
+    saveQuestions();
+  }
+  const newPct = getTemaPct(e.tema);
+  e.reviewCount++;
+  e.lastReviewed = today;
+  if (newPct !== null && newPct < 70) e.stage = 0;
+  else e.stage++;
+  e.nextReview = addDaysStr(today, SRS_INTERVALS[Math.min(e.stage, 2)]);
+  reviewLog[today] = (reviewLog[today] || 0) + 1;
+  saveReviewLog();
+  saveSRS();
+  closeQuickReview();
+  renderReview();
+  updateHeader();
+  const nd = parseDate(e.nextReview);
+  showToast((skipLog ? 'Revisada!' : 'Revisada (' + pct + '% na sessao)!') + ' Proxima: ' + formatDateBR(nd).split(',')[0] + ', ' + String(nd.getDate()).padStart(2, '0') + '/' + String(nd.getMonth() + 1).padStart(2, '0'));
 }
 
 // ======================== MONITORIAS ========================
@@ -4575,7 +4695,7 @@ function renderAnalytics() {
   while (reviewLog[formatDate(cur)] > 0) { streak++; cur.setDate(cur.getDate() - 1); }
 
   const alertTemas = Object.keys(questionData)
-    .filter(t => questionData[t].total > 0 && getTemaPct(t) < 30)
+    .filter(t => questionData[t].total > 0 && getTemaPct(t) < 50)
     .map(t => ({ tema: t, pct: getTemaPct(t) }));
 
   const upcoming7 = getAllClasses()
@@ -4590,7 +4710,7 @@ function renderAnalytics() {
   reportHtml += '</div>';
 
   if (alertTemas.length) {
-    reportHtml += '<div style="background:var(--danger-light);border:1px solid var(--danger);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.8rem">&#128680; <strong>Atencao (&lt;30%):</strong> ' + alertTemas.map(t => t.tema + ' (' + t.pct + '%)').join(', ') + '</div>';
+    reportHtml += '<div style="background:var(--danger-light);border:1px solid var(--danger);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.8rem">&#128680; <strong>Atencao (&lt;50%):</strong> ' + alertTemas.map(t => t.tema + ' (' + t.pct + '%)').join(', ') + '</div>';
   }
   if (upcoming7.length) {
     reportHtml += '<div style="background:var(--accent-light);border:1px solid var(--accent);border-radius:10px;padding:12px;margin-bottom:16px;font-size:0.8rem">&#128221; <strong>Avaliacoes em 7 dias:</strong> ' + upcoming7.map(a => a.disciplina + ' (' + formatDateBR(parseDate(a.data)).split(',')[0] + ')').join(' · ') + '</div>';
@@ -4629,7 +4749,7 @@ function renderAnalytics() {
   let barHtml = '';
   if (temaRows.length) {
     barHtml = temaRows.map(r => {
-      const color = r.pct < 30 ? 'var(--danger)' : (r.pct < 70 ? 'var(--accent)' : 'var(--success)');
+      const color = r.pct < 50 ? 'var(--danger)' : (r.pct < 70 ? 'var(--accent)' : 'var(--success)');
       return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:0.7rem;margin-bottom:3px"><span style="font-weight:600">' + r.tema + '</span><span style="color:' + color + ';font-weight:700">' + r.pct + '% (' + r.correct + '/' + r.total + ')</span></div><div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden"><div style="height:100%;width:' + r.pct + '%;background:' + color + ';border-radius:6px"></div></div></div>';
     }).join('');
   } else {
@@ -5340,6 +5460,19 @@ function loadConfig() {
   document.getElementById('configPeriodo').value = config.periodo || '2026.2';
   document.getElementById('configTurma').value = config.turma || '4003';
   document.getElementById('configCampus').value = config.campus || 'IDOMED Vista Carioca';
+}
+
+function loadQuestionGoal() {
+  const el = document.getElementById('configGoalQuestions');
+  if (el) el.value = localStorage.getItem(sk('m6_goal_questions')) || '';
+}
+
+function saveQuestionGoal() {
+  const el = document.getElementById('configGoalQuestions');
+  const v = parseInt(el.value, 10) || 0;
+  localStorage.setItem(sk('m6_goal_questions'), v);
+  alert(v > 0 ? 'Meta diaria salva: ' + v + ' questoes!' : 'Meta diaria desativada.');
+  renderReview();
 }
 
 function saveConfig() {

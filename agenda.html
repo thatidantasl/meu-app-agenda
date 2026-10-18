@@ -2402,11 +2402,11 @@ body {
     <div class="form-group">
       <label>Confianca (1 a 5)</label>
       <select id="qrConf">
-        <option value="3">3 - Neutro</option>
-        <option value="5">5 - Muito seguro</option>
-        <option value="4">4 - Seguro</option>
-        <option value="2">2 - Inseguro</option>
         <option value="1">1 - Muito inseguro</option>
+        <option value="2">2 - Inseguro</option>
+        <option value="3" selected>3 - Neutro</option>
+        <option value="4">4 - Seguro</option>
+        <option value="5">5 - Muito seguro</option>
       </select>
     </div>
     <div class="modal-btns">
@@ -3946,6 +3946,7 @@ function openQuickReview(data, disciplina) {
   document.getElementById('qrPctButtons').innerHTML = vals.map(p => '<button type="button" style="padding:6px 4px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:0.7rem;background:var(--bg);color:var(--text)" onclick="setQuickPct(' + p + ')">' + p + '%</button>').join('');
   document.getElementById('qrSlider').value = 70;
   document.getElementById('qrSliderVal').textContent = '70%';
+  document.getElementById('qrConf').value = '3';
   document.getElementById('quickReviewModal').classList.add('active');
 }
 function setQuickPct(p) {

@@ -1932,6 +1932,7 @@ body {
 <div class="content">
   <!-- TAB: HOJE -->
   <div class="tab-content active" id="tab-today">
+    <div id="todayReviewAlert"></div>
     <div class="section-title">
       <div class="icon purple">&#128197;</div> Aulas de Hoje
     </div>
@@ -2389,37 +2390,6 @@ body {
   </div>
 </div>
 
-<!-- MODAL QUESTOES -->
-<div class="modal-overlay" id="questionsModal">
-  <div class="modal">
-    <h3>&#128221; Lancar questoes</h3>
-    <div id="qInfo" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:10px"></div>
-    <div class="form-group">
-      <label>Questoes respondidas (agora)</label>
-      <input type="number" id="qAnswered" min="0" step="1" placeholder="0">
-    </div>
-    <div class="form-group">
-      <label>Acertos (agora)</label>
-      <input type="number" id="qCorrect" min="0" step="1" placeholder="0">
-    </div>
-    <div class="form-group">
-      <label>Confianca (1 a 5)</label>
-      <select id="qConf">
-        <option value="3">3 - Neutro</option>
-        <option value="5">5 - Muito seguro</option>
-        <option value="4">4 - Seguro</option>
-        <option value="2">2 - Inseguro</option>
-        <option value="1">1 - Muito inseguro</option>
-      </select>
-    </div>
-    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:10px">As novas respostas sao somadas ao total do assunto. &lt;70% = mais revisoes | &lt;50% = reforco emergencial (diario).</div>
-    <div class="modal-btns">
-      <button class="btn btn-secondary" onclick="closeQuestionsModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="submitQuestions()">Salvar</button>
-    </div>
-  </div>
-</div>
-
 <!-- MODAL REVISAO RAPIDA -->
 <div class="modal-overlay" id="quickReviewModal">
   <div class="modal">
@@ -2429,6 +2399,16 @@ body {
     <div id="qrPctButtons" style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:10px 0"></div>
     <input type="range" id="qrSlider" min="0" max="100" step="5" value="70" oninput="document.getElementById('qrSliderVal').textContent = this.value + '%'" style="width:100%">
     <div style="text-align:center;font-size:1.1rem;font-weight:800;margin:2px 0 10px" id="qrSliderVal">70%</div>
+    <div class="form-group">
+      <label>Confianca (1 a 5)</label>
+      <select id="qrConf">
+        <option value="3">3 - Neutro</option>
+        <option value="5">5 - Muito seguro</option>
+        <option value="4">4 - Seguro</option>
+        <option value="2">2 - Inseguro</option>
+        <option value="1">1 - Muito inseguro</option>
+      </select>
+    </div>
     <div class="modal-btns">
       <button class="btn btn-secondary" onclick="closeQuickReview()">Cancelar</button>
       <button class="btn btn-secondary" onclick="submitQuickReview(true)">So avancar</button>
@@ -3092,6 +3072,11 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
+function switchTabTo(name) {
+  const tab = document.querySelector('.tab[data-tab="' + name + '"]');
+  if (tab) tab.click();
+}
+
 // ======================== HEADER ========================
 function updateHeader() {
   document.getElementById('headerDate').textContent = formatDateBR(new Date());
@@ -3108,6 +3093,16 @@ function renderToday() {
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate()+1);
   const todayClasses = getClassesForDate(today);
   const tomorrowClasses = getClassesForDate(formatDate(tomorrow));
+
+  const reviewAlert = document.getElementById('todayReviewAlert');
+  if (reviewAlert) {
+    const n = countDueReviews();
+    if (n > 0) {
+      reviewAlert.innerHTML = '<button style="width:100%;text-align:left;background:var(--accent-light);border:1px solid var(--accent);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:0.8rem;color:var(--text);cursor:pointer;font-family:inherit" onclick="switchTabTo(\'review\')">&#128214; <strong>' + n + (n === 1 ? ' revisao' : ' revisoes') + ' para hoje/atrasada(s).</strong> Clique para revisar.</button>';
+    } else {
+      reviewAlert.innerHTML = '';
+    }
+  }
 
   // Dias da semana para label
   const weekDays = ['Domingo','Segunda-feira','Terca-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sabado'];
@@ -3667,6 +3662,19 @@ function getTemaPct(tema) {
   return Math.round(q.correct / q.total * 100);
 }
 
+function getTemaConf(tema) {
+  const q = questionData[tema];
+  if (!q || !q.history || !q.history.length) return null;
+  const confs = q.history.map(h => h.conf).filter(c => c !== null && c !== undefined);
+  if (!confs.length) return null;
+  return confs.reduce((s, c) => s + c, 0) / confs.length;
+}
+
+function isRecurrent(e) {
+  const p = getTemaPct(e.tema);
+  return p !== null && p < 70 && e.reviewCount >= 3;
+}
+
 function ensureSrs(a) {
   const key = a.data + '_' + a.disciplina;
   if (!srsData[key]) {
@@ -3784,6 +3792,7 @@ function renderReview() {
       else { pctBadge = '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700">&#10003; ' + pctTema + '%</span>'; borderColor = 'var(--success)'; }
     }
     const stageLabel = e.reviewCount === 0 ? '1a revisao' : (e.reviewCount + 1) + 'a revisao';
+    const recurrentBadge = isRecurrent(e) ? '<span class="badge" style="background:#7f1d1d;color:white;font-weight:700">&#128257; Recorrente</span>' : '';
     const overdueDays = Math.round((parseDate(today) - parseDate(e.nextReview)) / 86400000);
     let overdueLabel = '';
     if (overdueDays > 0) {
@@ -3793,12 +3802,11 @@ function renderReview() {
     }
     return `<div class="review-item taught" style="border-left:4px solid ${borderColor}">
       <div class="review-info">
-        <div class="subject">${a.disciplina} <span class="badge ${tc}">${getTipoLabel(a.tipo)}</span> ${pctBadge}</div>
+        <div class="subject">${a.disciplina} <span class="badge ${tc}">${getTipoLabel(a.tipo)}</span> ${recurrentBadge} ${pctBadge}</div>
         <div class="topic">${e.tema || a.tema}</div>
         <div class="date">${stageLabel}${overdueLabel}${e.lastReviewed ? ' | ultima: ' + formatDateBR(parseDate(e.lastReviewed)).split(',')[0] : ''}</div>
       </div>
       <div class="review-actions">
-        <button class="edit-btn strike" onclick="openQuestionsModal('${a.data}','${a.disciplina}')" title="Lancar questoes (respondidas/acertadas)">&#128221; Questoes</button>
         <button class="edit-btn edit" onclick="openQuickReview('${a.data}','${a.disciplina}')" title="Revisao rapida (com % de acerto)">&#9889; Revisar</button>
         <button class="edit-btn strike" onclick="postponeReview('${a.data}','${a.disciplina}')" title="Adiar esta revisao">&#9200; Adiar</button>
         <button class="edit-btn delete" onclick="toggleNoReview('${a.data}','${a.disciplina}')" title="Nao revisar esta aula">&#128581; Ignorar</button>
@@ -3927,37 +3935,6 @@ function showToast(msg) {
   t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2800);
 }
 
-let questionTarget = null;
-function openQuestionsModal(data, disciplina) {
-  const key = data + '_' + disciplina;
-  const e = srsData[key];
-  if (!e) return;
-  questionTarget = e.tema || '';
-  const q = questionData[questionTarget] || { total: 0, correct: 0 };
-  const pct = getTemaPct(questionTarget);
-  document.getElementById('qInfo').innerHTML = 'Assunto: <strong>' + questionTarget + '</strong><br>Respondidas: ' + q.total + ' | Acertos: ' + q.correct + (pct !== null ? ' | Aproveitamento: ' + pct + '%' : '');
-  document.getElementById('qAnswered').value = '';
-  document.getElementById('qCorrect').value = '';
-  document.getElementById('questionsModal').classList.add('active');
-}
-function closeQuestionsModal() { document.getElementById('questionsModal').classList.remove('active'); }
-
-function submitQuestions() {
-  const answered = parseInt(document.getElementById('qAnswered').value) || 0;
-  const correct = parseInt(document.getElementById('qCorrect').value) || 0;
-  if (answered <= 0) { alert('Informe quantas questoes respondeu agora.'); return; }
-  if (correct < 0 || correct > answered) { alert('Acertos nao podem ser maiores que as respondidas.'); return; }
-  const q = questionData[questionTarget] || { total: 0, correct: 0 };
-  q.total += answered;
-  q.correct += correct;
-  q.history = q.history || [];
-  q.history.push({ d: formatDate(new Date()), answered: answered, correct: correct, conf: parseInt(document.getElementById('qConf').value) || 3 });
-  questionData[questionTarget] = q;
-  saveQuestions();
-  closeQuestionsModal();
-  renderReview();
-}
-
 // ======================== REVISAO RAPIDA ========================
 let quickReviewKey = null;
 function openQuickReview(data, disciplina) {
@@ -3990,7 +3967,7 @@ function submitQuickReview(skipLog) {
     q.total += 10;
     q.correct += correct;
     q.history = q.history || [];
-    q.history.push({ d: today, answered: 10, correct: correct, conf: null });
+    q.history.push({ d: today, answered: 10, correct: correct, conf: parseInt(document.getElementById('qrConf').value) || 3 });
     questionData[tema] = q;
     saveQuestions();
   }
@@ -4743,14 +4720,15 @@ function renderAnalytics() {
   const temaRows = Object.keys(questionData)
     .filter(t => questionData[t].total > 0)
     .filter(t => !analyticsFilter || temaToDisc[t] === analyticsFilter)
-    .map(t => ({ tema: t, pct: getTemaPct(t), total: questionData[t].total, correct: questionData[t].correct }))
+    .map(t => ({ tema: t, pct: getTemaPct(t), total: questionData[t].total, correct: questionData[t].correct, conf: getTemaConf(t) }))
     .sort((a, b) => b.pct - a.pct);
 
   let barHtml = '';
   if (temaRows.length) {
     barHtml = temaRows.map(r => {
       const color = r.pct < 50 ? 'var(--danger)' : (r.pct < 70 ? 'var(--accent)' : 'var(--success)');
-      return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:0.7rem;margin-bottom:3px"><span style="font-weight:600">' + r.tema + '</span><span style="color:' + color + ';font-weight:700">' + r.pct + '% (' + r.correct + '/' + r.total + ')</span></div><div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden"><div style="height:100%;width:' + r.pct + '%;background:' + color + ';border-radius:6px"></div></div></div>';
+      const confLabel = r.conf !== null ? '<span style="font-size:0.65rem;color:var(--text-muted)">&#11088; conf. ' + r.conf.toFixed(1) + '</span>' : '';
+      return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:0.7rem;margin-bottom:3px"><span style="font-weight:600">' + r.tema + ' ' + confLabel + '</span><span style="color:' + color + ';font-weight:700">' + r.pct + '% (' + r.correct + '/' + r.total + ')</span></div><div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden"><div style="height:100%;width:' + r.pct + '%;background:' + color + ';border-radius:6px"></div></div></div>';
     }).join('');
   } else {
     barHtml = '<div class="empty-state"><p>Registre questoes (aba Revisao) para ver o desempenho por assunto.</p></div>';
@@ -4786,6 +4764,34 @@ function renderAnalytics() {
     chartHtml = '<div class="empty-state"><p>Registre questoes ao longo do tempo para ver a evolucao.</p></div>';
   }
 
+  // ---- Confianca ao longo do tempo ----
+  const confPts = [];
+  Object.keys(questionData).forEach(t => {
+    if (analyticsFilter && temaToDisc[t] !== analyticsFilter) return;
+    (questionData[t].history || []).forEach(h => { if (h.conf !== null && h.conf !== undefined) confPts.push({ d: h.d, conf: h.conf }); });
+  });
+  confPts.sort((a, b) => a.d.localeCompare(b.d));
+  let cSum = 0, cN = 0;
+  const confSeries = confPts.map(p => { cSum += p.conf; cN++; return { d: p.d, conf: cSum / cN }; });
+
+  let confChartHtml = '';
+  if (confSeries.length >= 2) {
+    const W = 600, H = 170, L = 34, R = 8, T = 12, B = 22;
+    const cx = i => L + (W - L - R) * (i / (confSeries.length - 1));
+    const cy = v => T + (H - T - B) * (1 - (v - 1) / 4);
+    const cline = confSeries.map((s, i) => (i ? 'L' : 'M') + cx(i).toFixed(1) + ',' + cy(s.conf).toFixed(1)).join(' ');
+    const carea = cline + ' L' + cx(confSeries.length - 1).toFixed(1) + ',' + (H - B) + ' L' + cx(0).toFixed(1) + ',' + (H - B) + ' Z';
+    confChartHtml = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' +
+      '<line x1="' + L + '" y1="' + (H - B) + '" x2="' + W + '" y2="' + (H - B) + '" stroke="var(--border)"/>' +
+      [5, 4, 3, 2, 1].map(v => '<line x1="' + L + '" y1="' + cy(v).toFixed(1) + '" x2="' + W + '" y2="' + cy(v).toFixed(1) + '" stroke="var(--border)" stroke-dasharray="2 2"/><text x="' + (L - 6) + '" y="' + (parseFloat(cy(v).toFixed(1)) + 3) + '" font-size="8" fill="var(--text-muted)" text-anchor="end">' + v + '</text>').join('') +
+      '<path d="' + carea + '" fill="rgba(34,197,94,0.12)"/>' +
+      '<path d="' + cline + '" fill="none" stroke="#22c55e" stroke-width="2"/>' +
+      confSeries.map((s, i) => '<circle cx="' + cx(i).toFixed(1) + '" cy="' + cy(s.conf).toFixed(1) + '" r="3" fill="#22c55e"><title>' + s.d + ' - confianca ' + s.conf.toFixed(1) + '</title></circle>').join('') +
+      '</svg>';
+  } else {
+    confChartHtml = '<div class="empty-state"><p>Registre a confianca nas revisoes para ver a evolucao.</p></div>';
+  }
+
   const filterSelect = '<div style="margin-bottom:14px"><label style="font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-right:8px">Disciplina:</label><select onchange="setAnalyticsFilter(this.value)" style="padding:8px 12px;border:2px solid var(--border);border-radius:8px;font-size:0.8rem;background:var(--bg);font-family:inherit;color:var(--text)">' +
     '<option value=""' + (!analyticsFilter ? ' selected' : '') + '>Todas</option>' +
     discOptions.map(d => '<option value="' + d + '"' + (analyticsFilter === d ? ' selected' : '') + '>' + d + '</option>').join('') +
@@ -4796,7 +4802,8 @@ function renderAnalytics() {
     '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#128221; Relatorio semanal</div>' + reportHtml + '</div>' +
     '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#128293; Heatmap de revisoes</div>' + heatHtml + '</div>' +
     '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#128202; Desempenho por assunto' + (analyticsFilter ? ' — ' + analyticsFilter : '') + '</div>' + barHtml + '</div>' +
-    '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#128200; Evolucao do desempenho (' + (analyticsFilter || 'global') + ')</div>' + chartHtml + '</div>';
+    '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#128200; Evolucao do desempenho (' + (analyticsFilter || 'global') + ')</div>' + chartHtml + '</div>' +
+    '<div class="card" style="padding:16px"><div style="font-weight:700;margin-bottom:8px;font-size:0.9rem">&#11088; Confianca ao longo do tempo (' + (analyticsFilter || 'global') + ')</div>' + confChartHtml + '</div>';
 }
 
 function setAnalyticsFilter(v) {

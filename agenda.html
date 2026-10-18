@@ -1933,6 +1933,7 @@ body {
   <!-- TAB: HOJE -->
   <div class="tab-content active" id="tab-today">
     <div id="todayReviewAlert"></div>
+    <div id="preAulaSummary"></div>
     <div class="section-title">
       <div class="icon purple">&#128197;</div> Aulas de Hoje
     </div>
@@ -1942,6 +1943,12 @@ body {
         <div class="icon orange">&#128198;</div> Aulas de Amanha
       </div>
       <div id="tomorrowClasses"></div>
+    </div>
+    <div style="margin-top: 24px;" id="watchTomorrowSection">
+      <div class="section-title">
+        <div class="icon purple">&#128250;</div> Assistir para amanha
+      </div>
+      <div id="watchTomorrow"></div>
     </div>
     <div style="margin-top: 24px;">
       <div class="section-title">
@@ -2201,6 +2208,17 @@ body {
         <button class="config-btn config-btn-primary" style="width:auto;padding:10px 18px" onclick="saveQuestionGoal()">Salvar</button>
       </div>
       <p style="font-size:0.7rem;color:var(--text-muted);margin-top:8px;text-align:center">Quantas questoes por dia voce quer responder?</p>
+    </div>
+
+    <div class="config-card">
+      <div class="config-card-title">
+        <span class="icon">&#127769;</span> Tema escuro programado
+      </div>
+      <div style="display:flex;gap:8px">
+        <input type="time" id="configDarkSchedule" class="config-input" style="margin-bottom:0">
+        <button class="config-btn config-btn-primary" style="width:auto;padding:10px 18px" onclick="saveDarkSchedule()">Salvar</button>
+      </div>
+      <p style="font-size:0.7rem;color:var(--text-muted);margin-top:8px;text-align:center">A partir desse horario, o tema escuro liga sozinho (deixe vazio para desativar).</p>
     </div>
 
     <div class="config-card">
@@ -2655,6 +2673,7 @@ let srsData = JSON.parse(localStorage.getItem(sk('m6_srs')) || '{}');
 let questionData = JSON.parse(localStorage.getItem(sk('m6_questions')) || '{}');
 let noReviewClasses = JSON.parse(localStorage.getItem(sk('m6_noreview')) || '{}');
 let reviewLog = JSON.parse(localStorage.getItem(sk('m6_reviewlog')) || '{}');
+let preAulaData = JSON.parse(localStorage.getItem(sk('m6_preaula')) || '{}');
 let editingIndex = -1;
 
 function getAllClasses() { return [...defaultClasses, ...customEvents]; }
@@ -2722,13 +2741,20 @@ function applyTheme() {
   const btn = document.getElementById('darkModeBtn');
   let isDark;
   if (mode === 'auto') {
-    isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const sched = localStorage.getItem(sk('m6_dark_schedule'));
+    if (sched) {
+      const now = new Date();
+      const cur = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      isDark = cur >= sched;
+    } else {
+      isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
     btn.innerHTML = '&#127763;'; // auto
   } else {
     isDark = mode === 'dark';
     btn.innerHTML = isDark ? '&#9728;' : '&#9790;';
   }
-  btn.title = mode === 'auto' ? 'Automatico (OS) - clique para alternar' : (isDark ? 'Modo escuro - clique para claro' : 'Modo claro - clique para escuro');
+  btn.title = mode === 'auto' ? 'Automatico (OS/horario) - clique para alternar' : (isDark ? 'Modo escuro - clique para claro' : 'Modo claro - clique para escuro');
   document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
 }
 
@@ -2931,6 +2957,7 @@ function saveReviewed() { localStorage.setItem(sk('m6_reviewed'), JSON.stringify
 function saveCancelled() { localStorage.setItem(sk('m6_cancelled'), JSON.stringify(cancelledClasses)); incrementChangeCount(); }
 function saveNoReview() { localStorage.setItem(sk('m6_noreview'), JSON.stringify(noReviewClasses)); incrementChangeCount(); }
 function saveReviewLog() { localStorage.setItem(sk('m6_reviewlog'), JSON.stringify(reviewLog)); }
+function savePreAula() { localStorage.setItem(sk('m6_preaula'), JSON.stringify(preAulaData)); }
 function saveMonitorias() { localStorage.setItem(sk('m6_monitorias'), JSON.stringify(monitorias)); incrementChangeCount(); }
 function saveSRS() { localStorage.setItem(sk('m6_srs'), JSON.stringify(srsData)); incrementChangeCount(); }
 function saveQuestions() { localStorage.setItem(sk('m6_questions'), JSON.stringify(questionData)); incrementChangeCount(); }
@@ -3068,7 +3095,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.tab === 'dashboard') { renderDashboard(); }
     if (tab.dataset.tab === 'analytics') { renderAnalytics(); }
     if (tab.dataset.tab === 'avaliacoes') { renderAllEvaluations(); }
-    if (tab.dataset.tab === 'config') { renderSubjectColors(); renderIESCDates(); loadQuestionGoal(); }
+    if (tab.dataset.tab === 'config') { renderSubjectColors(); renderIESCDates(); loadQuestionGoal(); loadDarkSchedule(); }
   });
 });
 
@@ -3104,6 +3131,29 @@ function renderToday() {
     }
   }
 
+  const paSummary = document.getElementById('preAulaSummary');
+  if (paSummary) {
+    const paClasses = [...todayClasses, ...tomorrowClasses];
+    let paSim = 0, paNao = 0, paNp = 0, paPend = 0;
+    paClasses.forEach(a => {
+      const st = preAulaData[a.data + '_' + a.disciplina];
+      if (st === 'sim') paSim++;
+      else if (st === 'nao') paNao++;
+      else if (st === 'naoprecisa') paNp++;
+      else paPend++;
+    });
+    if (paClasses.length) {
+      paSummary.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:0.7rem;align-items:center"><span style="font-weight:700">&#128218; Pre-aula (hoje/amanha):</span>' +
+        '<span style="color:#16a34a;font-weight:600">' + paSim + ' sim</span>' +
+        '<span style="color:#dc2626;font-weight:600">' + paNao + ' nao</span>' +
+        '<span style="color:#64748b;font-weight:600">' + paNp + ' nao precisa</span>' +
+        '<span style="color:var(--accent);font-weight:600">' + paPend + ' pendente</span>' +
+        '</div>';
+    } else {
+      paSummary.innerHTML = '';
+    }
+  }
+
   // Dias da semana para label
   const weekDays = ['Domingo','Segunda-feira','Terca-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sabado'];
 
@@ -3126,7 +3176,8 @@ function renderToday() {
             ${a.sala ? '<div class="meta-tag">&#128205; '+a.sala+'</div>' : ''}
             ${a.professor ? '<div class="meta-tag">&#128104;&#8205;&#127891; '+a.professor+'</div>' : ''}
           </div>
-          ${a.anotacoes ? '<div style="margin-top:6px;font-size:0.7rem;color:var(--text-muted);background:var(--bg);padding:4px 8px;border-radius:6px;border-left:2px solid var(--primary)">📝 '+a.anotacoes+'</div>' : ''}
+          ${a.anotacoes ? '<div style="margin-top:6px;font-size:0.7rem;color:var(--text-muted);background:var(--bg);padding:4px 8px;border-radius:6px;border-left:2px solid var(--primary)">&#128221; '+a.anotacoes+'</div>' : ''}
+          ${preAulaSelector(a.data, a.disciplina)}
         </div>
         <div class="edit-actions">
           <button class="edit-btn edit" onclick="event.stopPropagation();openEditModalFor('${a.data}','${a.disciplina}')">&#9998; Editar</button>
@@ -3177,6 +3228,7 @@ function renderToday() {
                     ${a.sala ? '<div class="meta-tag">&#128205; '+a.sala+'</div>' : ''}
                     ${a.professor ? '<div class="meta-tag">&#128104;&#8205;&#127891; '+a.professor+'</div>' : ''}
                   </div>
+                  ${preAulaSelector(a.data, a.disciplina)}
                 </div>
               </div>`;
             }).join('')}
@@ -3190,6 +3242,19 @@ function renderToday() {
     (nextDaysHtml ? '' : '<p style="font-size:0.75rem;color:var(--text-muted)">Use o botao + abaixo para adicionar eventos.</p>') + '</div>' +
     nextDaysHtml;
   document.getElementById('tomorrowClasses').innerHTML = renderList(tomorrowClasses, false);
+
+  const watchDiv = document.getElementById('watchTomorrow');
+  const watchSection = document.getElementById('watchTomorrowSection');
+  if (watchDiv) {
+    const needWatch = tomorrowClasses.filter(a => {
+      const st = preAulaData[a.data + '_' + a.disciplina];
+      return st !== 'sim' && st !== 'naoprecisa';
+    });
+    if (watchSection) watchSection.style.display = needWatch.length ? '' : 'none';
+    watchDiv.innerHTML = needWatch.length
+      ? needWatch.map(a => '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:0.8rem"><div><strong>' + a.disciplina + '</strong> <span style="color:var(--text-muted)">' + (a.tema || '') + '</span></div><span style="font-size:0.65rem;color:var(--accent)">' + (preAulaData[a.data + '_' + a.disciplina] === 'nao' ? 'marcado como nao' : 'pendente') + '</span></div>').join('')
+      : '';
+  }
 
   const todayStr = formatDate(new Date());
   const upcoming = getAllClasses().filter(a => a.tipo==='avaliacao' && a.data >= todayStr && !cancelledClasses[a.data+'_'+a.disciplina]).sort((a,b)=>a.data.localeCompare(b.data)).slice(0,5);
@@ -3885,6 +3950,32 @@ function reviewToggleBtn(data, disciplina, tipo) {
   return '<button class="edit-btn ' + (ignored ? 'edit' : 'strike') + '" onclick="event.stopPropagation();toggleNoReview(\'' + data + '\',\'' + disciplina + '\')" title="' + (ignored ? 'Voltar a revisar' : 'Nao revisar esta aula') + '">' + (ignored ? '&#128260; Revisar' : '&#128581; Nao revisar') + '</button>';
 }
 
+// ======================== PRE-AULA ========================
+function setPreAula(data, disciplina, status) {
+  const key = data + '_' + disciplina;
+  if (preAulaData[key] === status) { delete preAulaData[key]; }
+  else { preAulaData[key] = status; }
+  savePreAula();
+  renderToday();
+}
+
+function preAulaSelector(data, disciplina) {
+  const key = data + '_' + disciplina;
+  const cur = preAulaData[key] || '';
+  const opts = [
+    { v: 'sim', l: 'Sim', c: '#22c55e' },
+    { v: 'nao', l: 'Nao', c: '#ef4444' },
+    { v: 'naoprecisa', l: 'Nao precisa', c: '#94a3b8' }
+  ];
+  return '<div style="margin-top:8px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">' +
+    '<span style="font-size:0.65rem;color:var(--text-muted);font-weight:600">&#128218; Pre-aula:</span>' +
+    opts.map(o => {
+      const active = cur === o.v;
+      return '<button type="button" onclick="event.stopPropagation();setPreAula(\'' + data + '\',\'' + disciplina + '\',\'' + o.v + '\')" style="padding:3px 9px;border-radius:12px;border:1px solid ' + (active ? o.c : 'var(--border)') + ';background:' + (active ? o.c : 'transparent') + ';color:' + (active ? 'white' : 'var(--text-muted)') + ';font-size:0.65rem;cursor:pointer;font-family:inherit">' + o.l + '</button>';
+    }).join('') +
+    '</div>';
+}
+
 function markReviewDone(data, disciplina) {
   const key = data + '_' + disciplina;
   const e = srsData[key];
@@ -4547,6 +4638,42 @@ function initGradesSelect() {
 }
 
 // ======================== DASHBOARD ========================
+function renderAchievements() {
+  const today = formatDate(new Date());
+  let streak = 0; let cur = new Date();
+  if (!(reviewLog[formatDate(cur)] > 0)) cur.setDate(cur.getDate() - 1);
+  while (reviewLog[formatDate(cur)] > 0) { streak++; cur.setDate(cur.getDate() - 1); }
+
+  let totalReviews = 0; Object.values(reviewLog).forEach(v => totalReviews += v);
+  let totalQ = 0; Object.values(questionData).forEach(q => totalQ += q.total || 0);
+
+  const goal = parseInt(localStorage.getItem(sk('m6_goal_questions')), 10) || 0;
+  let todayQ = 0; Object.values(questionData).forEach(q => (q.history || []).forEach(h => { if (h.d === today) todayQ += h.answered; }));
+  const goalHit = goal > 0 && todayQ >= goal;
+
+  const todayClasses = getClassesForDate(today);
+  let paDone = 0; const paTotal = todayClasses.length;
+  todayClasses.forEach(a => { const st = preAulaData[a.data + '_' + a.disciplina]; if (st === 'sim' || st === 'naoprecisa') paDone++; });
+  const paAll = paTotal > 0 && paDone === paTotal;
+
+  const achievements = [
+    { icon: '&#128218;', name: 'Primeira revisao', desc: 'Fez a primeira revisao', done: totalReviews >= 1 },
+    { icon: '&#128170;', name: 'Revisor dedicado', desc: '20+ revisoes concluidas', done: totalReviews >= 20 },
+    { icon: '&#128293;', name: 'Sequencia', desc: '3 dias seguidos revisando', done: streak >= 3 },
+    { icon: '&#128165;', name: 'Super sequencia', desc: '7 dias seguidos revisando', done: streak >= 7 },
+    { icon: '&#127919;', name: 'Meta do dia', desc: 'Bateu a meta de questoes hoje', done: goalHit },
+    { icon: '&#128250;', name: 'Pre-aula em dia', desc: 'Todas as pre-aulas de hoje feitas', done: paAll },
+    { icon: '&#129504;', name: '100 questoes', desc: 'Respondeu 100+ questoes', done: totalQ >= 100 }
+  ];
+
+  const done = achievements.filter(a => a.done).length;
+  const html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">' +
+    achievements.map(a => '<div style="border:1px solid ' + (a.done ? 'var(--primary)' : 'var(--border)') + ';border-radius:10px;padding:10px;text-align:center;' + (a.done ? 'background:var(--primary-light);' : 'opacity:0.5;') + '"><div style="font-size:1.4rem">' + a.icon + '</div><div style="font-size:0.7rem;font-weight:700;margin-top:4px">' + a.name + '</div><div style="font-size:0.6rem;color:var(--text-muted)">' + a.desc + '</div></div>').join('') +
+    '</div>';
+
+  return '<div class="card" style="padding:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-weight:700;font-size:0.9rem">&#127942; Conquistas</div><span style="font-size:0.7rem;color:var(--text-muted)">' + done + '/' + achievements.length + '</span></div>' + html + '</div>';
+}
+
 function renderDashboard() {
   const all = getAllClasses();
   const today = formatDate(new Date());
@@ -4628,7 +4755,7 @@ function renderDashboard() {
     <div class="manage-stat" style="flex:1;min-width:90px"><div class="num">${totalPct}%</div><div class="lbl">Concluido</div></div>
   </div>` + html;
 
-  document.getElementById('dashboardContent').innerHTML = html;
+  document.getElementById('dashboardContent').innerHTML = html + renderAchievements();
 }
 
 let analyticsFilter = '';
@@ -5307,7 +5434,8 @@ function exportAllData() {
       srs: srsData,
       questions: questionData,
       noReview: noReviewClasses,
-      reviewLog: reviewLog
+      reviewLog: reviewLog,
+      preAula: preAulaData
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], {type: 'application/json;charset=utf-8'});
@@ -5372,6 +5500,10 @@ function importAllData(event) {
             reviewLog = data.reviewLog;
             saveReviewLog();
           }
+          if (data.preAula) {
+            preAulaData = data.preAula;
+            savePreAula();
+          }
           // Reaplicar na memoria
           updateDiscColors();
           loadDefaultOverrides();
@@ -5422,6 +5554,7 @@ function importFromText() {
         if (data.questions) { questionData = data.questions; saveQuestions(); }
         if (data.noReview) { noReviewClasses = data.noReview; saveNoReview(); }
         if (data.reviewLog) { reviewLog = data.reviewLog; saveReviewLog(); }
+        if (data.preAula) { preAulaData = data.preAula; savePreAula(); }
         updateDiscColors();
         loadDefaultOverrides();
         if (data.config) {
@@ -5481,6 +5614,18 @@ function saveQuestionGoal() {
   localStorage.setItem(sk('m6_goal_questions'), v);
   alert(v > 0 ? 'Meta diaria salva: ' + v + ' questoes!' : 'Meta diaria desativada.');
   renderReview();
+}
+
+function loadDarkSchedule() {
+  const el = document.getElementById('configDarkSchedule');
+  if (el) el.value = localStorage.getItem(sk('m6_dark_schedule')) || '';
+}
+
+function saveDarkSchedule() {
+  const el = document.getElementById('configDarkSchedule');
+  localStorage.setItem(sk('m6_dark_schedule'), el.value || '');
+  alert(el.value ? 'Tema escuro programado para ' + el.value + '.' : 'Programacao desativada.');
+  applyTheme();
 }
 
 function saveConfig() {
@@ -5545,6 +5690,7 @@ function initAgenda() {
   renderAll();
   initChat();
   setInterval(updateHeader, 60000);
+  setInterval(applyTheme, 60000);
 
   // Carregar dados da nuvem automaticamente (silencioso)
   setTimeout(() => loadFromCloud(true), 1500);
@@ -5614,7 +5760,8 @@ function getShareData() {
     srs: srsData,
     questions: questionData,
     noReview: noReviewClasses,
-    reviewLog: reviewLog
+    reviewLog: reviewLog,
+    preAula: preAulaData
   });
 }
 
@@ -5682,7 +5829,8 @@ function copyToClipboard() {
     srs: srsData,
     questions: questionData,
     noReview: noReviewClasses,
-    reviewLog: reviewLog
+    reviewLog: reviewLog,
+    preAula: preAulaData
   });
   navigator.clipboard.writeText(data).then(() => {
     alert('Dados copiados com sucesso!\n\nNo outro dispositivo:\n1. Abra a agenda\n2. Clique em "Colar" no header\n3. Pronto!');
@@ -5773,7 +5921,8 @@ async function saveToCloud(silent) {
     srs: srsData,
     questions: questionData,
     noReview: noReviewClasses,
-    reviewLog: reviewLog
+    reviewLog: reviewLog,
+    preAula: preAulaData
   };
   
   try {
@@ -5862,6 +6011,7 @@ async function loadFromCloud(silent) {
     if (data.questions) { questionData = data.questions; saveQuestions(); }
     if (data.noReview) { noReviewClasses = data.noReview; saveNoReview(); }
     if (data.reviewLog) { reviewLog = data.reviewLog; saveReviewLog(); }
+    if (data.preAula) { preAulaData = data.preAula; savePreAula(); }
     
     saveCustom(); saveMonitorias(); saveReviewed(); saveCancelled();
     updateDiscColors();
@@ -5894,6 +6044,8 @@ const _origSaveQuestions = saveQuestions;
 saveQuestions = function() { _origSaveQuestions(); autoSaveToCloud(); };
 const _origSaveNoReview = saveNoReview;
 saveNoReview = function() { _origSaveNoReview(); autoSaveToCloud(); };
+const _origSavePreAula = savePreAula;
+savePreAula = function() { _origSavePreAula(); autoSaveToCloud(); };
 
 // Inicializacao: entra direto se houver perfil ativo; senao mostra o login
 if (activeProfile) {

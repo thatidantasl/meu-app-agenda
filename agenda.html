@@ -2674,6 +2674,7 @@ let questionData = JSON.parse(localStorage.getItem(sk('m6_questions')) || '{}');
 let noReviewClasses = JSON.parse(localStorage.getItem(sk('m6_noreview')) || '{}');
 let reviewLog = JSON.parse(localStorage.getItem(sk('m6_reviewlog')) || '{}');
 let preAulaData = JSON.parse(localStorage.getItem(sk('m6_preaula')) || '{}');
+let forceReviewClasses = JSON.parse(localStorage.getItem(sk('m6_force_review')) || '{}');
 let editingIndex = -1;
 
 function getAllClasses() { return [...defaultClasses, ...customEvents]; }
@@ -2958,6 +2959,7 @@ function saveCancelled() { localStorage.setItem(sk('m6_cancelled'), JSON.stringi
 function saveNoReview() { localStorage.setItem(sk('m6_noreview'), JSON.stringify(noReviewClasses)); incrementChangeCount(); }
 function saveReviewLog() { localStorage.setItem(sk('m6_reviewlog'), JSON.stringify(reviewLog)); }
 function savePreAula() { localStorage.setItem(sk('m6_preaula'), JSON.stringify(preAulaData)); }
+function saveForceReview() { localStorage.setItem(sk('m6_force_review'), JSON.stringify(forceReviewClasses)); }
 function saveMonitorias() { localStorage.setItem(sk('m6_monitorias'), JSON.stringify(monitorias)); incrementChangeCount(); }
 function saveSRS() { localStorage.setItem(sk('m6_srs'), JSON.stringify(srsData)); incrementChangeCount(); }
 function saveQuestions() { localStorage.setItem(sk('m6_questions'), JSON.stringify(questionData)); incrementChangeCount(); }
@@ -3762,8 +3764,10 @@ function countDueReviews() {
   if (nextPR && (parseDate(nextPR) - parseDate(today)) / 86400000 <= 3) return 0;
   let n = 0;
   all.forEach(a => {
-    if (!(a.data >= REVIEW_START_DATE && a.data < today && REVIEWABLE_TYPES.includes(a.tipo) && !cancelledClasses[a.data + '_' + a.disciplina] && !noReviewClasses[a.data + '_' + a.disciplina])) return;
-    const e = srsData[a.data + '_' + a.disciplina] || ensureSrs(a);
+    const key = a.data + '_' + a.disciplina;
+    if (cancelledClasses[key] || noReviewClasses[key]) return;
+    if (!forceReviewClasses[key] && !(a.data >= REVIEW_START_DATE && a.data < today && REVIEWABLE_TYPES.includes(a.tipo))) return;
+    const e = srsData[key] || ensureSrs(a);
     if (e && parseDate(e.nextReview) <= parseDate(today)) n++;
   });
   return n;
@@ -3779,12 +3783,12 @@ function renderReview() {
   const all = getAllClasses();
   const today = formatDate(new Date());
 
-  const taught = all.filter(a => 
-    a.data >= REVIEW_START_DATE && a.data < today &&
-    REVIEWABLE_TYPES.includes(a.tipo) &&
-    !cancelledClasses[a.data+'_'+a.disciplina] &&
-    !noReviewClasses[a.data+'_'+a.disciplina]
-  );
+  const taught = all.filter(a => {
+    const k = a.data + '_' + a.disciplina;
+    if (cancelledClasses[k] || noReviewClasses[k]) return false;
+    if (forceReviewClasses[k]) return true;
+    return a.data >= REVIEW_START_DATE && a.data < today && REVIEWABLE_TYPES.includes(a.tipo);
+  });
   const ignored = all.filter(a => 
     a.data >= REVIEW_START_DATE && a.data < today &&
     REVIEWABLE_TYPES.includes(a.tipo) &&
@@ -3944,10 +3948,34 @@ function toggleNoReview(data, disciplina) {
 }
 
 function reviewToggleBtn(data, disciplina, tipo) {
-  if (!REVIEWABLE_TYPES.includes(tipo)) return '';
   const key = data + '_' + disciplina;
+  if (forceReviewClasses[key]) {
+    return '<button class="edit-btn edit" onclick="event.stopPropagation();toggleForceReview(\'' + data + '\',\'' + disciplina + '\')" title="Remover da revisao">&#10003; Revisar</button>';
+  }
+  const reviewable = REVIEWABLE_TYPES.includes(tipo) && data >= REVIEW_START_DATE;
+  if (!reviewable) {
+    return '<button class="edit-btn strike" onclick="event.stopPropagation();toggleForceReview(\'' + data + '\',\'' + disciplina + '\')" title="Adicionar esta aula (mesmo antiga) a revisao">&#10133; Revisar</button>';
+  }
   const ignored = !!noReviewClasses[key];
   return '<button class="edit-btn ' + (ignored ? 'edit' : 'strike') + '" onclick="event.stopPropagation();toggleNoReview(\'' + data + '\',\'' + disciplina + '\')" title="' + (ignored ? 'Voltar a revisar' : 'Nao revisar esta aula') + '">' + (ignored ? '&#128260; Revisar' : '&#128581; Nao revisar') + '</button>';
+}
+
+function toggleForceReview(data, disciplina) {
+  const key = data + '_' + disciplina;
+  const a = getAllClasses().find(x => x.data === data && x.disciplina === disciplina);
+  if (!a) return;
+  if (forceReviewClasses[key]) {
+    delete forceReviewClasses[key];
+  } else {
+    forceReviewClasses[key] = true;
+    const e = ensureSrs(a);
+    e.nextReview = formatDate(new Date());
+    saveSRS();
+  }
+  saveForceReview();
+  renderReview();
+  renderManage();
+  renderToday();
 }
 
 // ======================== PRE-AULA ========================
@@ -5345,7 +5373,7 @@ function renderManage() {
           <div class="manage-item-actions">
             <button class="manage-item-btn" onclick="openEditModalFor('${a.data}','${a.disciplina}')">&#9998;</button>
             <button class="manage-item-btn" onclick="toggleCancel('${a.data}','${a.disciplina}');renderManage();">${isCancelled?'&#9878;':'&#128683;'}</button>
-            ${REVIEWABLE_TYPES.includes(a.tipo) ? '<button class="manage-item-btn" onclick="toggleNoReview(\''+a.data+'\',\''+a.disciplina+'\')" title="'+(noReviewClasses[key]?'Voltar a revisar':'Nao revisar')+'">'+(noReviewClasses[key]?'&#128260;':'&#128581;')+'</button>' : ''}
+            ${reviewToggleBtn(a.data, a.disciplina, a.tipo)}
             ${isCustom ? '<button class="manage-item-btn" onclick="deleteCustom(\''+a.data+'\',\''+a.disciplina+'\')">&#128465;</button>' : ''}
           </div>
         </div>`;
@@ -5379,7 +5407,7 @@ function renderManage() {
       <td class="actions-cell">
         <button class="edit-btn edit" onclick="openEditModalFor('${a.data}','${a.disciplina}')" title="Editar">&#9998;</button>
         <button class="edit-btn strike" onclick="toggleCancel('${a.data}','${a.disciplina}');renderManage();" title="${isCancelled?'Restaurar':'Cancelar'}">${isCancelled?'&#9878;':'&#128683;'}</button>
-        ${REVIEWABLE_TYPES.includes(a.tipo) ? '<button class="edit-btn '+(noReviewClasses[key]?'edit':'strike')+'" onclick="toggleNoReview(\''+a.data+'\',\''+a.disciplina+'\')" title="'+(noReviewClasses[key]?'Voltar a revisar':'Nao revisar')+'">'+(noReviewClasses[key]?'&#128260;':'&#128581;')+'</button>' : ''}
+        ${reviewToggleBtn(a.data, a.disciplina, a.tipo)}
         ${isCustom ? '<button class="edit-btn delete" onclick="deleteCustom(\''+a.data+'\',\''+a.disciplina+'\')" title="Excluir">&#128465;</button>' : ''}
       </td>
     </tr>`;
@@ -5435,7 +5463,8 @@ function exportAllData() {
       questions: questionData,
       noReview: noReviewClasses,
       reviewLog: reviewLog,
-      preAula: preAulaData
+      preAula: preAulaData,
+      forceReview: forceReviewClasses
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], {type: 'application/json;charset=utf-8'});
@@ -5504,6 +5533,10 @@ function importAllData(event) {
             preAulaData = data.preAula;
             savePreAula();
           }
+          if (data.forceReview) {
+            forceReviewClasses = data.forceReview;
+            saveForceReview();
+          }
           // Reaplicar na memoria
           updateDiscColors();
           loadDefaultOverrides();
@@ -5555,6 +5588,7 @@ function importFromText() {
         if (data.noReview) { noReviewClasses = data.noReview; saveNoReview(); }
         if (data.reviewLog) { reviewLog = data.reviewLog; saveReviewLog(); }
         if (data.preAula) { preAulaData = data.preAula; savePreAula(); }
+        if (data.forceReview) { forceReviewClasses = data.forceReview; saveForceReview(); }
         updateDiscColors();
         loadDefaultOverrides();
         if (data.config) {
@@ -5761,7 +5795,8 @@ function getShareData() {
     questions: questionData,
     noReview: noReviewClasses,
     reviewLog: reviewLog,
-    preAula: preAulaData
+    preAula: preAulaData,
+    forceReview: forceReviewClasses
   });
 }
 
@@ -5830,7 +5865,8 @@ function copyToClipboard() {
     questions: questionData,
     noReview: noReviewClasses,
     reviewLog: reviewLog,
-    preAula: preAulaData
+    preAula: preAulaData,
+    forceReview: forceReviewClasses
   });
   navigator.clipboard.writeText(data).then(() => {
     alert('Dados copiados com sucesso!\n\nNo outro dispositivo:\n1. Abra a agenda\n2. Clique em "Colar" no header\n3. Pronto!');
@@ -5922,7 +5958,8 @@ async function saveToCloud(silent) {
     questions: questionData,
     noReview: noReviewClasses,
     reviewLog: reviewLog,
-    preAula: preAulaData
+    preAula: preAulaData,
+    forceReview: forceReviewClasses
   };
   
   try {
@@ -6012,6 +6049,7 @@ async function loadFromCloud(silent) {
     if (data.noReview) { noReviewClasses = data.noReview; saveNoReview(); }
     if (data.reviewLog) { reviewLog = data.reviewLog; saveReviewLog(); }
     if (data.preAula) { preAulaData = data.preAula; savePreAula(); }
+    if (data.forceReview) { forceReviewClasses = data.forceReview; saveForceReview(); }
     
     saveCustom(); saveMonitorias(); saveReviewed(); saveCancelled();
     updateDiscColors();
@@ -6046,6 +6084,8 @@ const _origSaveNoReview = saveNoReview;
 saveNoReview = function() { _origSaveNoReview(); autoSaveToCloud(); };
 const _origSavePreAula = savePreAula;
 savePreAula = function() { _origSavePreAula(); autoSaveToCloud(); };
+const _origSaveForceReview = saveForceReview;
+saveForceReview = function() { _origSaveForceReview(); autoSaveToCloud(); };
 
 // Inicializacao: entra direto se houver perfil ativo; senao mostra o login
 if (activeProfile) {

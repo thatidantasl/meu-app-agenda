@@ -4238,7 +4238,7 @@ let gradesData = JSON.parse(localStorage.getItem(sk('m6_grades')) || '{}');
 function saveGrades() { localStorage.setItem(sk('m6_grades'), JSON.stringify(gradesData)); }
 
 function getGradesFor(disciplina) {
-  if (!gradesData[disciplina]) gradesData[disciplina] = { pr1: [], pr2: [], final: null };
+  if (!gradesData[disciplina]) gradesData[disciplina] = { pr1: [], pr2: [], final: null, extra: null };
   return gradesData[disciplina];
 }
 
@@ -4263,7 +4263,8 @@ function renderGrades() {
   const pr2Info = calcMediaCompleta(g.pr2);
   const pr1 = pr1Info.media;
   const pr2 = pr2Info.media;
-  const media = (pr1 !== null && pr2 !== null) ? (pr1 + pr2) / 2 : null;
+  const extra = g.extra || 0;
+  const media = (pr1 !== null && pr2 !== null) ? (pr1 + pr2 + extra) / 2 : null;
   const finalNota = g.final;
   const finalMedia = (media !== null && finalNota !== null) ? (media + finalNota) / 2 : null;
 
@@ -4332,22 +4333,22 @@ function renderGrades() {
     simuladorHTML += '</div>';
 
     // Projecao: quanto precisa nas avaliacoes restantes
-    const mediaCalc = (pr1Calc !== null && pr2Calc !== null) ? (pr1Calc + pr2Calc) / 2 : null;
+    const mediaCalc = (pr1Calc !== null && pr2Calc !== null) ? (pr1Calc + pr2Calc + extra) / 2 : null;
     if (mediaCalc !== null && mediaCalc < 7) {
-      const precisaTotal = 14; // PR1 + PR2 precisa ≥ 14 (media ≥ 7)
+      const precisaTotal = 14 - extra; // PR1 + PR2 + extra precisa ≥ 14 (media ≥ 7)
       const faltaTotal = precisaTotal - (pr1Calc + pr2Calc);
 
       if (faltaPesoPR1 > 0 && faltaPesoPR2 === 0) {
         const precisaPR1 = ((precisaTotal - pr2Calc) * totalPesoPR1 - earnedPR1) / faltaPesoPR1;
-        simuladorHTML += '<div style="background:var(--accent-light);border-radius:10px;padding:10px;margin-bottom:8px;font-size:0.75rem;color:var(--text)">🎯 Para fechar <strong>14.0</strong> (PR1=' + pr1Calc.toFixed(1) + ' + PR2=' + pr2Calc.toFixed(1) + ' = ' + (pr1Calc+pr2Calc).toFixed(1) + '), precisa de media <strong style="color:var(--accent)">' + Math.min(10, Math.max(0, precisaPR1)).toFixed(1) + '</strong> nos ' + faltaPesoPR1 + 'pts restantes da PR1</div>';
+        simuladorHTML += '<div style="background:var(--accent-light);border-radius:10px;padding:10px;margin-bottom:8px;font-size:0.75rem;color:var(--text)">🎯 Para fechar <strong>' + precisaTotal.toFixed(1) + '</strong> (PR1=' + pr1Calc.toFixed(1) + ' + PR2=' + pr2Calc.toFixed(1) + ' = ' + (pr1Calc+pr2Calc).toFixed(1) + '), precisa de media <strong style="color:var(--accent)">' + Math.min(10, Math.max(0, precisaPR1)).toFixed(1) + '</strong> nos ' + faltaPesoPR1 + 'pts restantes da PR1</div>';
       } else if (faltaPesoPR2 > 0 && faltaPesoPR1 === 0) {
         const precisaPR2 = ((precisaTotal - pr1Calc) * totalPesoPR2 - earnedPR2) / faltaPesoPR2;
-        simuladorHTML += '<div style="background:var(--accent-light);border-radius:10px;padding:10px;margin-bottom:8px;font-size:0.75rem;color:var(--text)">🎯 Para fechar <strong>14.0</strong> (PR1=' + pr1Calc.toFixed(1) + ' + PR2=' + pr2Calc.toFixed(1) + ' = ' + (pr1Calc+pr2Calc).toFixed(1) + '), precisa de media <strong style="color:var(--accent)">' + Math.min(10, Math.max(0, precisaPR2)).toFixed(1) + '</strong> nos ' + faltaPesoPR2 + 'pts restantes da PR2</div>';
+        simuladorHTML += '<div style="background:var(--accent-light);border-radius:10px;padding:10px;margin-bottom:8px;font-size:0.75rem;color:var(--text)">🎯 Para fechar <strong>' + precisaTotal.toFixed(1) + '</strong> (PR1=' + pr1Calc.toFixed(1) + ' + PR2=' + pr2Calc.toFixed(1) + ' = ' + (pr1Calc+pr2Calc).toFixed(1) + '), precisa de media <strong style="color:var(--accent)">' + Math.min(10, Math.max(0, precisaPR2)).toFixed(1) + '</strong> nos ' + faltaPesoPR2 + 'pts restantes da PR2</div>';
       } else if (faltaPesoPR1 > 0 && faltaPesoPR2 > 0) {
         simuladorHTML += '<div style="background:var(--accent-light);border-radius:10px;padding:10px;margin-bottom:8px;font-size:0.75rem;color:var(--text)">🎯 PR1=' + pr1Calc.toFixed(1) + ' + PR2=' + pr2Calc.toFixed(1) + ' = <strong>' + (pr1Calc+pr2Calc).toFixed(1) + '</strong>. Faltam <strong>' + faltaTotal.toFixed(1) + '</strong> pontos. Use o simulador abaixo para estimar as notas restantes.</div>';
       }
     } else if (mediaCalc !== null && mediaCalc >= 7) {
-      simuladorHTML += '<div style="background:var(--success-light);border-radius:10px;padding:10px;margin-bottom:8px;font-size:0.75rem;color:var(--success);text-align:center;font-weight:600">✅ PR1 + PR2 = ' + (pr1Calc+pr2Calc).toFixed(1) + ' — Suficiente para aprovacao direta!</div>';
+      simuladorHTML += '<div style="background:var(--success-light);border-radius:10px;padding:10px;margin-bottom:8px;font-size:0.75rem;color:var(--success);text-align:center;font-weight:600">✅ PR1 + PR2 = ' + (pr1Calc+pr2Calc).toFixed(1) + (extra > 0 ? ' (+' + extra + ' extra)' : '') + ' — Suficiente para aprovacao direta!</div>';
     } else {
       simuladorHTML += '<div style="background:var(--bg);border-radius:10px;padding:10px;margin-bottom:8px;font-size:0.75rem;color:var(--text-muted);text-align:center">Lance notas nas avaliacoes acima para ver a projecao.</div>';
     }
@@ -4432,6 +4433,14 @@ function renderGrades() {
         <span style="font-size:1.2rem;font-weight:800;color:${g.final !== null ? 'var(--text)' : 'var(--text-muted)'}">${g.final !== null ? g.final.toFixed(1) : '—'}</span>
         <button class="edit-btn edit" style="padding:4px 8px;font-size:0.65rem" onclick="setFinalNota('${disc}')">${g.final !== null ? 'Editar' : 'Inserir'}</button>
         ${g.final !== null ? '<button class="edit-btn delete" style="padding:4px 8px;font-size:0.65rem" onclick="deleteFinalNota(\''+disc+'\')">Limpar</button>' : ''}
+      </div>
+    </div>` +
+    `<div style="margin-top:8px;padding:10px;background:var(--bg);border-radius:8px;text-align:center">
+      <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:4px">&#127775; Ponto extra</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px">
+        <span style="font-size:1.2rem;font-weight:800;color:${g.extra !== null && g.extra !== undefined ? 'var(--success)' : 'var(--text-muted)'}">${g.extra !== null && g.extra !== undefined ? '+ ' + g.extra : '—'}</span>
+        <button class="edit-btn edit" style="padding:4px 8px;font-size:0.65rem" onclick="setExtraNota('${disc}')">${g.extra !== null && g.extra !== undefined ? 'Editar' : 'Inserir'}</button>
+        ${g.extra !== null && g.extra !== undefined ? '<button class="edit-btn delete" style="padding:4px 8px;font-size:0.65rem" onclick="deleteExtraNota(\''+disc+'\')">Limpar</button>' : ''}
       </div>
     </div>` +
     simuladorHTML;
@@ -4659,6 +4668,19 @@ function deleteFinalNota(disc) {
   saveGrades(); renderGrades();
 }
 
+function setExtraNota(disc) {
+  const g = getGradesFor(disc);
+  const nota = parseFloat(prompt('Pontos extras (ex: 0.5, 1, 2):', g.extra !== null && g.extra !== undefined ? g.extra : ''));
+  if (isNaN(nota) || nota < 0) { alert('Valor invalido'); return; }
+  g.extra = nota;
+  saveGrades(); renderGrades();
+}
+
+function deleteExtraNota(disc) {
+  getGradesFor(disc).extra = null;
+  saveGrades(); renderGrades();
+}
+
 function initGradesSelect() {
   const select = document.getElementById('gradesDisciplina');
   const discs = [...new Set(getAllClasses().map(a => a.disciplina))].sort();
@@ -4733,7 +4755,7 @@ function renderDashboard() {
     }
     const pr1 = calcPR(g.pr1);
     const pr2 = calcPR(g.pr2);
-    const media = (pr1 !== null && pr2 !== null) ? (pr1 + pr2) / 2 : null;
+    const media = (pr1 !== null && pr2 !== null) ? (pr1 + pr2 + (g.extra || 0)) / 2 : null;
     let notaBadge = '<span style="font-size:0.65rem;color:var(--text-muted)">Sem notas</span>';
     if (media !== null) {
       if (media >= 7) notaBadge = '<span style="background:var(--success-light);color:var(--success);padding:2px 8px;border-radius:10px;font-size:0.65rem;font-weight:700">Aprovada! ' + media.toFixed(1) + '</span>';

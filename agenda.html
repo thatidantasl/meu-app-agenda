@@ -4256,7 +4256,7 @@ function renderGrades() {
     if (withGrades.length === 0) return { media: null, pesoUsado: 0, pesoTotal: 0 };
     let totalPeso = 0, totalNota = 0, pesoComNota = 0;
     list.forEach(e => { totalPeso += e.peso; if (e.nota !== null) { pesoComNota += e.peso; totalNota += e.nota * e.peso; } });
-    return { media: pesoComNota > 0 ? totalNota / pesoComNota : null, pesoUsado: pesoComNota, pesoTotal: totalPeso };
+    return { media: totalPeso > 0 ? totalNota / totalPeso : null, pesoUsado: pesoComNota, pesoTotal: totalPeso };
   }
 
   const pr1Info = calcMediaCompleta(g.pr1);

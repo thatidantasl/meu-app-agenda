@@ -4403,7 +4403,7 @@ function renderGrades() {
       html += '<div style="font-size:0.75rem;color:var(--text-muted);padding:8px;border:1px dashed var(--border);border-radius:8px;text-align:center">Nenhuma avaliacao cadastrada</div>';
     } else {
       html += list.map((e, i) => {
-        const passou = e.data < today;
+        const passou = e.data <= today;
         const notaDisplay = e.nota !== null
           ? '<span style="cursor:pointer;font-weight:700" onclick="setNota(\''+disc+'\',\''+label+'\','+i+')" title="Clique para editar nota">' + e.nota.toFixed(1) + '</span>'
           : (passou ? '<span style="color:var(--accent);cursor:pointer" onclick="setNota(\''+disc+'\',\''+label+'\','+i+')">+nota</span>' : '<span style="color:var(--text-muted)">—</span>');
